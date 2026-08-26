@@ -81,7 +81,7 @@ if ($TrustedHost) {
 # requirements.txt (>= 2026.08.19). Sem isso o PyInstaller poderia reempacotar
 # um yt-dlp desatualizado e o erro "Requested format is not available" voltaria.
 & $venvPy -c "import sys
-for m in ('PyInstaller','flask','flask_cors','yt_dlp','requests','waitress','curl_cffi'):
+for m in ('PyInstaller','flask','flask_cors','yt_dlp','requests','waitress','curl_cffi','pystray','PIL'):
     try: __import__(m)
     except Exception: sys.exit(1)
 try:
@@ -120,10 +120,15 @@ $pyArgs = @(
 )
 # yt-dlp carrega os extractors dinamicamente: incluir o pacote inteiro
 $pyArgs += '--collect-all=yt_dlp'
+# pystray (bandeja) carrega backends dinamicamente: incluir o pacote inteiro
+$pyArgs += '--collect-all=pystray'
+# Dashboard web e ícones (dados usados em runtime via resource_path)
+$pyArgs += '--add-data', ((Join-Path $projectRoot 'backend\web') + ';backend\web')
+$pyArgs += '--add-data', ((Join-Path $projectRoot 'icons') + ';icons')
 # curl-cffi (impersonacao de navegador do Instagram) inclui libcurl nativo e
 # certificados: coleta todos os binarios/dados para o EXE suportar instagram.
 $pyArgs += '--collect-all=curl_cffi'
-# flask/template/static + deps dinamicas mais comuns do yt-dlp + waitress/tkinter
+# flask/template/static + deps dinamicas mais comuns do yt-dlp + waitress
 foreach ($h in @('waitress','certifi','brotli','websockets','pysocks','Cryptodome','Crypto','brotlicffi','curl_cffi','curl_cffi.impersonate')) {
   $pyArgs += "--hidden-import=$h"
 }
