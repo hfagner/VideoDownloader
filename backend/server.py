@@ -18,6 +18,8 @@ from waitress import create_server
 import tkinter as tk
 from tkinter import messagebox
 
+import analyzer
+
 DEFAULT_CONFIG = {
     "download_dir": str(Path.home() / "Downloads" / "EdgeVideoDownloader"),
     "default_quality": "1080p",
@@ -561,6 +563,72 @@ def get_status(task_id):
     return jsonify(status)
 
 
+@app.route("/api/analyze", methods=["POST"])
+def analyze_media():
+    data = request.json or {}
+    url = data.get("url")
+    try:
+        result = analyzer.analyze_url(
+            url=url,
+            referer=data.get("referer"),
+            cookies_list=data.get("cookies"),
+            default_quality=load_config()["default_quality"],
+        )
+        return jsonify(result)
+    except analyzer.AnalyzeError as e:
+        return jsonify({"error": str(e)}), e.status
+    except Exception as e:
+        return jsonify({"error": f"Erro inesperado na analise: {e}"}), 502
+
+
+@app.route("/api/config", methods=["GET", "POST"])
+def config_route():
+    if request.method == "POST":
+        cfg = load_config()
+        cfg.update(request.json or {})
+        cfg["download_dir"] = str(Path(cfg.get("download_dir", "")).expanduser())
+        save_config(cfg)
+        try:
+            apply_autostart(bool(cfg["autostart"]))
+        except Exception:
+            pass
+        return jsonify({"ok": True, "config": cfg})
+    return jsonify(load_config())
+
+
+@app.route("/api/open-folder", methods=["POST"])
+def open_folder():
+    try:
+        folder = download_dir()
+        os.makedirs(folder, exist_ok=True)
+        os.startfile(folder)
+        return jsonify({"ok": True, "path": folder})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/open-file", methods=["POST"])
+def open_file():
+    """Abre um arquivo (nome relativo a pasta de downloads ou caminho
+    absoluto) — bloqueia qualquer caminho fora da pasta (path traversal)."""
+    path = (request.json or {}).get("path")
+    if not path:
+        return jsonify({"error": "path obrigatorio"}), 400
+    if not os.path.isabs(path):
+        path = os.path.join(download_dir(), path)
+    base = os.path.realpath(download_dir())
+    target = os.path.realpath(path)
+    if target != base and not target.startswith(base + os.sep):
+        return jsonify({"error": "Caminho fora da pasta de downloads"}), 400
+    if not os.path.isfile(target):
+        return jsonify({"error": "Arquivo nao encontrado"}), 404
+    try:
+        os.startfile(target)
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 # ---------------------------------------------------------------------------
 # Execucao: servidor WSGI (waitress) + janela de status (tkinter)
 # ---------------------------------------------------------------------------
@@ -631,6 +699,22 @@ def _kill_ffmpeg_children():
                                capture_output=True, timeout=10)
             except Exception:
                 pass
+
+
+def shutdown_app():
+    """Encerra o Motor Local de forma segura (mata ffmpeg filhos, persiste)."""
+    _kill_ffmpeg_children()
+    try:
+        QUEUE.persist(_history_path())
+    except Exception:
+        pass
+    threading.Timer(0.3, lambda: os._exit(0)).start()
+
+
+@app.route("/api/shutdown", methods=["POST"])
+def shutdown_route():
+    threading.Timer(0.5, shutdown_app).start()
+    return jsonify({"ok": True})
 
 
 def _shutdown(server, root):

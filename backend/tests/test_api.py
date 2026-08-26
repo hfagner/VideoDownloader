@@ -35,3 +35,57 @@ def test_cancel(client):
     r = client.post("/api/cancel/t9")
     assert r.status_code == 200 and r.get_json() == {"ok": True}
     assert client.post("/api/cancel/nao-existe").status_code == 404
+
+
+def test_analyze_ok(monkeypatch, client):
+    fake = {"title": "T", "duration": 10, "source": "ytdlp", "best_id": "h1",
+            "formats": [{"id": "h1", "resolution": "1080p"}]}
+    monkeypatch.setattr(srv.analyzer, "analyze_url",
+                        lambda url, referer=None, cookies_list=None, default_quality="1080p": fake)
+    r = client.post("/api/analyze", json={"url": "https://www.youtube.com/watch?v=x"})
+    assert r.status_code == 200
+    assert r.get_json()["title"] == "T"
+
+
+def test_analyze_sem_url_400(monkeypatch, client):
+    monkeypatch.setattr(srv.analyzer, "analyze_url",
+                        lambda **kw: (_ for _ in ()).throw(srv.analyzer.AnalyzeError("URL nao fornecida", 400)))
+    r = client.post("/api/analyze", json={})
+    assert r.status_code == 400
+    assert "error" in r.get_json()
+
+
+def test_analyze_falha_ytdlp_502(monkeypatch, client):
+    monkeypatch.setattr(srv.analyzer, "analyze_url",
+                        lambda **kw: (_ for _ in ()).throw(srv.analyzer.AnalyzeError("falhou")))
+    r = client.post("/api/analyze", json={"url": "https://www.youtube.com/watch?v=x"})
+    assert r.status_code == 502
+    assert "falhou" in r.get_json()["error"]
+
+
+def test_config_get_post_round_trip(client, tmp_path):
+    r = client.get("/api/config")
+    assert r.status_code == 200
+    assert r.get_json()["default_quality"] == "1080p"
+    r = client.post("/api/config", json={"default_quality": "720p",
+                                         "download_dir": str(tmp_path / "dl")})
+    assert r.status_code == 200
+    assert client.get("/api/config").get_json()["default_quality"] == "720p"
+
+
+def test_open_file_valida_caminho(client, tmp_path):
+    # define a pasta de downloads como tmp_path para a validacao
+    client.post("/api/config", json={"download_dir": str(tmp_path)})
+    # fora da pasta (traversal) → 400
+    assert client.post("/api/open-file",
+                       json={"path": "C:\\Windows\\System32\\notepad.exe"}).status_code == 400
+    # dentro da pasta mas inexistente → 404 (absoluto e relativo)
+    assert client.post("/api/open-file", json={"path": str(tmp_path / "x.mp4")}).status_code == 404
+    assert client.post("/api/open-file", json={"path": "video.mp4"}).status_code == 404
+
+
+def test_shutdown_agenda(client, monkeypatch):
+    called = {}
+    monkeypatch.setattr(srv, "shutdown_app", lambda: called.setdefault("ok", True))
+    r = client.post("/api/shutdown")
+    assert r.status_code == 200 and r.get_json() == {"ok": True}
