@@ -22,6 +22,15 @@ if (!window._evd_injected) {
     return Math.random().toString(36).substr(2, 9) + Date.now().toString(36);
   }
 
+  // Título da página para fallback de nome da mídia
+  function getPageTitles() {
+    const ogMeta = document.querySelector('meta[property="og:title"]');
+    return {
+      ogTitle: ogMeta ? ogMeta.getAttribute('content') || '' : '',
+      pageTitle: document.title || ''
+    };
+  }
+
   // Extrai informações do elemento HTMLMediaElement
   function extractMediaInfo(el, type) {
     let src = el.src || el.currentSrc;
@@ -65,6 +74,7 @@ if (!window._evd_injected) {
         url: urlObj.href,
         pageUrl: window.location.href,
         pageTitle: document.title,
+        ogTitle: getPageTitles().ogTitle,
         filename: filename,
         type: type,
         format: format,
@@ -114,6 +124,7 @@ if (!window._evd_injected) {
       url: typeInfo.url,
       pageUrl: window.location.href,
       pageTitle: document.title,
+      ogTitle: getPageTitles().ogTitle,
       filename: typeInfo.filename,
       type: 'video',
       format: 'mp4',
@@ -183,6 +194,7 @@ if (!window._evd_injected) {
           url: youtubeUrl,
           pageUrl: window.location.href,
           pageTitle: document.title,
+          ogTitle: getPageTitles().ogTitle,
           filename: `youtube_${videoId}.mp4`,
           type: 'youtube',
           format: 'mp4',
@@ -205,6 +217,7 @@ if (!window._evd_injected) {
           url: vimeoUrl,
           pageUrl: window.location.href,
           pageTitle: document.title,
+          ogTitle: getPageTitles().ogTitle,
           filename: `vimeo_${vimeoId}.mp4`,
           type: 'vimeo',
           format: 'mp4',
@@ -225,6 +238,7 @@ if (!window._evd_injected) {
           url: src,
           pageUrl: window.location.href,
           pageTitle: document.title,
+          ogTitle: getPageTitles().ogTitle,
           filename: `pandavideo_${pandaMatch[1]}.mp4`,
           type: 'panda',
           format: 'mp4',
@@ -246,6 +260,7 @@ if (!window._evd_injected) {
           url: src,
           pageUrl: window.location.href,
           pageTitle: document.title,
+          ogTitle: getPageTitles().ogTitle,
           filename: `hotmart_${mediaCode}.mp4`,
           type: 'hotmart',
           format: 'mp4',
