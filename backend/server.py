@@ -85,6 +85,124 @@ def apply_autostart(enabled):
 
 DOWNLOAD_DIR = download_dir()
 
+
+class TaskQueue:
+    """Fila de downloads: max. N simultaneos, FIFO, estado em memoria +
+    persistencia opcional em JSON."""
+
+    def __init__(self, max_concurrent=2):
+        self.max_concurrent = max_concurrent
+        self._tasks = {}   # id -> dict da task
+        self._fns = {}     # id -> funcao a executar
+        self._queue = []   # ids aguardando slot
+        self._active = set()
+        self._lock = threading.Lock()
+
+    def submit(self, fn, task):
+        task.setdefault("id", str(uuid.uuid4()))
+        task.setdefault("status", "queued")
+        task.setdefault("progress", "0%")
+        task.setdefault("created_at", time.time())
+        with self._lock:
+            self._tasks[task["id"]] = task
+            self._fns[task["id"]] = fn
+            if len(self._active) < self.max_concurrent:
+                self._start(task["id"])
+            else:
+                self._queue.append(task["id"])
+        return task["id"]
+
+    def _start(self, task_id):
+        task = self._tasks[task_id]
+        if task.get("status") == "queued":
+            task["status"] = "downloading"
+        self._active.add(task_id)
+
+        def runner():
+            try:
+                self._fns[task_id](task)
+            except Exception as e:
+                self.set(task_id, status="error", error=str(e))
+            finally:
+                self._finish(task_id)
+
+        threading.Thread(target=runner, daemon=True).start()
+
+    def _finish(self, task_id):
+        with self._lock:
+            self._active.discard(task_id)
+            if self._queue:
+                self._start(self._queue.pop(0))
+
+    def set(self, task_id, **fields):
+        with self._lock:
+            if task_id in self._tasks:
+                self._tasks[task_id].update(fields)
+
+    def get(self, task_id):
+        with self._lock:
+            task = self._tasks.get(task_id)
+            return dict(task) if task else {}
+
+    def cancel(self, task_id):
+        with self._lock:
+            task = self._tasks.get(task_id)
+            if not task:
+                return False
+            pid = task.get("ffmpeg_pid") or task.get("proc_pid")
+            if pid:
+                try:
+                    subprocess.run(["taskkill", "/PID", str(pid), "/F", "/T"],
+                                   capture_output=True, timeout=10)
+                except Exception:
+                    pass
+            task["status"] = "cancelled"
+            if task_id in self._queue:
+                self._queue.remove(task_id)
+            return True
+
+    def snapshot(self, limit=50):
+        with self._lock:
+            tasks = sorted(self._tasks.values(),
+                           key=lambda t: t.get("created_at", 0), reverse=True)
+            return [dict(t) for t in tasks[:limit]]
+
+    def history(self):
+        with self._lock:
+            done = [t for t in self._tasks.values()
+                    if t.get("status") in ("completed", "error", "cancelled", "interrupted")]
+            done.sort(key=lambda t: t.get("completed_at") or t.get("created_at") or 0,
+                      reverse=True)
+            return [dict(t) for t in done]
+
+    def load(self, path):
+        if not path.exists():
+            return
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            return
+        with self._lock:
+            for t in data:
+                if t.get("status") in ("downloading", "queued", "merging"):
+                    t["status"] = "interrupted"
+                self._tasks.setdefault(t["id"], t)
+
+    def persist(self, path):
+        with self._lock:
+            tasks = sorted(self._tasks.values(),
+                           key=lambda t: t.get("created_at", 0))
+            path.write_text(
+                json.dumps(tasks[-500:], ensure_ascii=False, indent=2),
+                encoding="utf-8")
+
+
+QUEUE = TaskQueue(max_concurrent=2)
+
+
+def _history_path():
+    return data_dir() / "history.json"
+
 app = Flask(__name__)
 CORS(app)
 
@@ -387,6 +505,23 @@ def download_video_task(task_id, url, referer=None, extra_headers=None, cookies_
 @app.route('/api/ping')
 def ping():
     return jsonify({'ok': True, 'service': 'edge-video-downloader'})
+
+
+@app.route("/api/tasks", methods=["GET"])
+def list_tasks():
+    return jsonify({"tasks": QUEUE.snapshot()})
+
+
+@app.route("/api/history", methods=["GET"])
+def list_history():
+    return jsonify({"history": QUEUE.history()})
+
+
+@app.route("/api/cancel/<task_id>", methods=["POST"])
+def cancel_task(task_id):
+    if not QUEUE.get(task_id):
+        return jsonify({"error": "Task ID nao encontrado"}), 404
+    return jsonify({"ok": QUEUE.cancel(task_id)})
 
 
 @app.route('/api/download', methods=['POST'])
