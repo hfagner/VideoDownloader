@@ -1,10 +1,13 @@
+import json
 import os
 import re
 import shutil
 import sys
 import subprocess
 import threading
+import time
 import uuid
+from pathlib import Path
 
 import requests as req
 from flask import Flask, request, jsonify
@@ -15,15 +18,78 @@ from waitress import create_server
 import tkinter as tk
 from tkinter import messagebox
 
+DEFAULT_CONFIG = {
+    "download_dir": str(Path.home() / "Downloads" / "EdgeVideoDownloader"),
+    "default_quality": "1080p",
+    "autostart": False,
+    "notifications": True,
+}
+
+
+def data_dir():
+    """Diretório de dados (config/histórico): backend/data em dev;
+    %LOCALAPPDATA%/EdgeVideoDownloader quando congelado pelo PyInstaller."""
+    if getattr(sys, "frozen", False):
+        base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
+        d = Path(base) / "EdgeVideoDownloader"
+    else:
+        d = Path(__file__).resolve().parent / "data"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def load_config():
+    path = data_dir() / "config.json"
+    if path.exists():
+        try:
+            return {**DEFAULT_CONFIG, **json.loads(path.read_text(encoding="utf-8"))}
+        except Exception:
+            pass
+    return dict(DEFAULT_CONFIG)
+
+
+def save_config(cfg):
+    (data_dir() / "config.json").write_text(
+        json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def download_dir():
+    return load_config()["download_dir"]
+
+
+def sanitize_filename(name, default="video"):
+    safe = re.sub(r"[^\w\s.-]", "-", name or "").strip(" -")[:120]
+    return safe or default
+
+
+def apply_autostart(enabled):
+    if sys.platform != "win32":
+        return
+    import winreg
+    key = winreg.OpenKey(
+        winreg.HKEY_CURRENT_USER,
+        r"Software\Microsoft\Windows\CurrentVersion\Run",
+        0, winreg.KEY_SET_VALUE)
+    try:
+        if enabled:
+            winreg.SetValueEx(key, "EdgeVideoDownloader", 0, winreg.REG_SZ,
+                              f'"{sys.executable}"')
+        else:
+            try:
+                winreg.DeleteValue(key, "EdgeVideoDownloader")
+            except FileNotFoundError:
+                pass
+    finally:
+        key.Close()
+
+
+DOWNLOAD_DIR = download_dir()
+
 app = Flask(__name__)
 CORS(app)
 
 HOST = '127.0.0.1'
 PORT = 5000
-
-DOWNLOAD_DIR = os.path.join(os.path.expanduser("~"), "Downloads", "EdgeVideoDownloader")
-if not os.path.exists(DOWNLOAD_DIR):
-    os.makedirs(DOWNLOAD_DIR)
 
 downloads_status = {}
 
