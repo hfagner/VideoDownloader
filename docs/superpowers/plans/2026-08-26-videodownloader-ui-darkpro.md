@@ -1412,6 +1412,12 @@ def start_download():
     if not url:
         return jsonify({"error": "URL nao fornecida"}), 400
 
+    # Garante a pasta de destino antes do primeiro download (ruling Task 2).
+    try:
+        os.makedirs(download_dir(), exist_ok=True)
+    except OSError:
+        pass
+
     format_type = "audio" if data.get("audio") else data.get("format_type", "video")
     filename = sanitize_filename(data.get("filename") or "", "video")
     task = {
