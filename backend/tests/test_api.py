@@ -157,3 +157,34 @@ def test_record_final_size_grava_tamanho(monkeypatch):
     monkeypatch.setattr(srv.os.path, "getsize", lambda p: 12345)
     srv._record_final_size(q, task_id, "Aula 1.mp4")
     assert q.get(task_id)["size"] == 12345
+
+
+def test_finalize_file_renomeia_direto_sem_extensao(monkeypatch, tmp_path):
+    """Reproduz o bug do download direto com filename do usuario: o outtmpl
+    sem %(ext)s faz o yt-dlp gravar 'matriz-teste' (sem extensao) no disco,
+    enquanto o historico registra 'matriz-teste.mp4'. O _finalize_file deve
+    renomear o arquivo real para o nome final e gravar o size na task."""
+    q = srv.TaskQueue()
+    task_id = q.submit(lambda t: None, {"title": "X"})
+    monkeypatch.setattr(srv, "download_dir", lambda: str(tmp_path))
+    (tmp_path / "matriz-teste").write_bytes(b"x" * 100)
+
+    srv._finalize_file(q, task_id,
+                       str(tmp_path / "matriz-teste"), "matriz-teste.mp4")
+
+    assert (tmp_path / "matriz-teste.mp4").exists()
+    assert (tmp_path / "matriz-teste.mp4").read_bytes() == b"x" * 100
+    assert not (tmp_path / "matriz-teste").exists()
+    assert q.get(task_id).get("size") == 100
+
+
+def test_finalize_file_nao_renomeia_quando_nome_ja_correto(monkeypatch, tmp_path):
+    q = srv.TaskQueue()
+    task_id = q.submit(lambda t: None, {"title": "X"})
+    monkeypatch.setattr(srv, "download_dir", lambda: str(tmp_path))
+    (tmp_path / "Titulo.mp4").write_bytes(b"y" * 50)
+
+    srv._finalize_file(q, task_id, str(tmp_path / "Titulo.mp4"), "Titulo.mp4")
+
+    assert (tmp_path / "Titulo.mp4").exists()
+    assert q.get(task_id).get("size") == 50

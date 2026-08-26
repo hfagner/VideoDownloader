@@ -108,6 +108,25 @@ def _record_final_size(queue, task_id, final_name):
         pass
 
 
+def _finalize_file(queue, task_id, prepared, final_name):
+    """Ajusta o arquivo real no disco ao nome final do historico e grava o
+    size. Download direto com filename do usuario usa outtmpl sem %(ext)s,
+    entao o yt-dlp grava o arquivo SEM extensao; o nome final (com .mp4)
+    ja era registrado no historico. Renomeia o arquivo para o nome final
+    antes de gravar o tamanho."""
+    try:
+        target = os.path.join(download_dir(), final_name)
+        if not os.path.isfile(target):
+            source = os.path.join(download_dir(),
+                                  os.path.basename(prepared))
+            if (os.path.isfile(source)
+                    and os.path.basename(source) != os.path.basename(target)):
+                os.replace(source, target)
+        _record_final_size(queue, task_id, final_name)
+    except OSError:
+        pass
+
+
 def apply_autostart(enabled):
     if sys.platform != "win32":
         return
@@ -452,7 +471,7 @@ def download_task(queue, task, *, url, referer=None, extra_headers=None,
             final_name = _final_name_for(
                 prepared, format_type == "audio", info, bool(filename))
             queue.set(task_id, filename=final_name)
-            _record_final_size(queue, task_id, final_name)
+            _finalize_file(queue, task_id, prepared, final_name)
         except Exception:
             pass
 
