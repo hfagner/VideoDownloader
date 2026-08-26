@@ -136,12 +136,14 @@ def test_status_le_da_fila(client):
     assert client.get("/api/status/nao-existe").status_code == 404
 
 
-def test_outtmpl_respeita_filename(monkeypatch, tmp_path):
+def test_outtmpl_remove_extensao_do_usuario(monkeypatch, tmp_path):
     monkeypatch.setattr(srv, "download_dir", lambda: str(tmp_path))
-    assert srv._outtmpl_for("Aula 1.mp4") == str(tmp_path / "Aula 1.mp4")
+    assert srv._outtmpl_for("Aula 1.mp4") == str(tmp_path / "Aula 1")
     assert srv._outtmpl_for("").endswith("%(title)s.%(ext)s")
 
 
-def test_final_name_audio_substitui_extensao():
-    assert srv._final_name_for("C:/dl/Aula 1.webm", True) == "Aula 1.mp3"
-    assert srv._final_name_for("C:/dl/Aula 1.mp4", False) == "Aula 1.mp4"
+def test_final_name_audio_e_video():
+    assert srv._final_name_for("C:/dl/Aula 1", True, {}, True) == "Aula 1.mp3"
+    assert srv._final_name_for("C:/dl/Aula 1", False, {"requested_formats": [{}, {}]}, True) == "Aula 1.mp4"
+    assert srv._final_name_for("C:/dl/Aula 1", False, {"ext": "webm"}, True) == "Aula 1.webm"
+    assert srv._final_name_for("C:/dl/Titulo Extraido.mp4", False, {}, False) == "Titulo Extraido.mp4"

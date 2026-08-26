@@ -65,18 +65,26 @@ def sanitize_filename(name, default="video"):
 
 
 def _outtmpl_for(filename):
-    """Template de saida do yt-dlp: usa o nome escolhido pelo usuario quando
-    houver; caso contrario, o titulo extraido pelo proprio yt-dlp."""
+    """Template de saida do yt-dlp: usa o nome escolhido pelo usuario SEM
+    extensao (o yt-dlp adiciona a correta no download/pos-processamento);
+    caso contrario, o titulo extraido pelo proprio yt-dlp."""
     if filename:
-        return os.path.join(download_dir(), filename)
+        return os.path.join(download_dir(), os.path.splitext(filename)[0])
     return os.path.join(download_dir(), "%(title)s.%(ext)s")
 
 
-def _final_name_for(prepared_path, audio):
-    """Nome final no disco (pos-posprocessamento)."""
+def _final_name_for(prepared, audio, info, had_filename):
+    """Nome final no disco. Com nome do usuario: audio→.mp3; merge→.mp4;
+    formato unico→ext do formato. Sem nome do usuario: o prepare_filename do
+    template %(ext)s ja devolve o nome correto."""
+    if not had_filename:
+        return os.path.basename(prepared)
+    base = os.path.splitext(os.path.basename(prepared))[0]
     if audio:
-        return os.path.splitext(os.path.basename(prepared_path))[0] + ".mp3"
-    return os.path.basename(prepared_path)
+        return base + ".mp3"
+    if info and info.get("requested_formats"):
+        return base + ".mp4"
+    return base + "." + ((info or {}).get("ext") or "mp4")
 
 
 def apply_autostart(enabled):
@@ -420,7 +428,8 @@ def download_task(queue, task, *, url, referer=None, extra_headers=None,
 
         try:
             prepared = ydl.prepare_filename(info)
-            queue.set(task_id, filename=_final_name_for(prepared, format_type == "audio"))
+            queue.set(task_id, filename=_final_name_for(
+                prepared, format_type == "audio", info, bool(filename)))
         except Exception:
             pass
 
