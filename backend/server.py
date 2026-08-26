@@ -136,8 +136,14 @@ class TaskQueue:
 
     def set(self, task_id, **fields):
         with self._lock:
-            if task_id in self._tasks:
-                self._tasks[task_id].update(fields)
+            task = self._tasks.get(task_id)
+            if not task:
+                return
+            # Uma task cancelada nao pode voltar a outro estado: a thread pode
+            # terminar depois do cancelamento e tentar sobrescrever o status.
+            if task.get("status") == "cancelled" and fields.get("status") not in (None, "cancelled"):
+                fields = {k: v for k, v in fields.items() if k != "status"}
+            task.update(fields)
 
     def get(self, task_id):
         with self._lock:

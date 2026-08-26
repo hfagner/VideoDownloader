@@ -54,3 +54,14 @@ def test_history_so_terminal():
     q.submit(lambda t: None, {"id": "c", "title": "C", "status": "error"})
     ids = [t["id"] for t in q.history()]
     assert set(ids) == {"b", "c"}
+
+
+def test_cancel_nao_e_sobrescrito_por_thread():
+    q = TaskQueue(max_concurrent=2)
+    task_id = q.submit(
+        lambda t: (time.sleep(0.05), q.set(t["id"], status="completed"))[1],
+        {"title": "X"},
+    )
+    q.cancel(task_id)
+    time.sleep(0.3)
+    assert q.get(task_id)["status"] == "cancelled"
