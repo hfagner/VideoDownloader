@@ -235,9 +235,9 @@ Expected: FAIL — `ModuleNotFoundError: No module named 'analyzer'`.
 - [ ] **Step 4: Implementar `backend/analyzer.py`**
 
 ```python
-"""Análise de mídias: título + formatos + tamanhos (exato ou estimado).
+"""Analise de midias: titulo + formatos + tamanhos (exato ou estimado).
 
-Funções de parsing/estimativa são puras (testáveis); analyze_url() orquestra
+Funcoes de parsing/estimativa sao puras (testaveis); analyze_url() orquestra
 rede (m3u8 / yt-dlp) e delega a elas.
 """
 import os
@@ -610,7 +610,7 @@ DEFAULT_CONFIG = {
 
 
 def data_dir():
-    """Diretório de dados (config/histórico): backend/data em dev;
+    """Diretorio de dados (config/historico): backend/data em dev;
     %LOCALAPPDATA%/EdgeVideoDownloader quando congelado pelo PyInstaller."""
     if getattr(sys, "frozen", False):
         base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
@@ -817,8 +817,8 @@ Adicionar após as funções de config do Task 2:
 
 ```python
 class TaskQueue:
-    """Fila de downloads: máx. N simultâneos, FIFO, estado em memória +
-    persistência opcional em JSON."""
+    """Fila de downloads: max. N simultaneos, FIFO, estado em memoria +
+    persistencia opcional em JSON."""
 
     def __init__(self, max_concurrent=2):
         self.max_concurrent = max_concurrent
@@ -1096,7 +1096,7 @@ def open_folder():
 
 @app.route("/api/open-file", methods=["POST"])
 def open_file():
-    """Abre um arquivo (nome relativo à pasta de downloads ou caminho
+    """Abre um arquivo (nome relativo a pasta de downloads ou caminho
     absoluto) — bloqueia qualquer caminho fora da pasta (path traversal)."""
     path = (request.json or {}).get("path")
     if not path:
@@ -1254,7 +1254,7 @@ def download_task(queue, task, *, url, referer=None, extra_headers=None,
         "no_warnings": True,
         "concurrent_fragment_downloads": 5,
     }
-    format_label = "Áudio (MP3)" if format_type == "audio" else (
+    format_label = "Audio (MP3)" if format_type == "audio" else (
         f"{format_id}" if format_id else "Melhor")
     queue.set(task_id, format_label=format_label)
 
@@ -2125,7 +2125,7 @@ TRAY = None  # referência global para o coletor de lixo não derrubar o ícone
 
 
 def run_tray(port):
-    """Ícone na bandeja: abrir dashboard, abrir pasta, parar o motor."""
+    """Icone na bandeja: abrir dashboard, abrir pasta, parar o motor."""
     global TRAY
     import pystray
     from PIL import Image
