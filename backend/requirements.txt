@@ -4,3 +4,5 @@ yt-dlp>=2026.08.19
 curl-cffi>=0.7.0
 requests>=2.31.0
 waitress>=3.0.0
+pystray>=0.19.5
+pillow>=10.0.0

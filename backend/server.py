@@ -14,9 +14,7 @@ from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 import yt_dlp
 from waitress import create_server
-
-import tkinter as tk
-from tkinter import messagebox
+import webbrowser
 
 import analyzer
 
@@ -551,9 +549,11 @@ def web_assets(filename):
     return jsonify({"error": "Nao encontrado"}), 404
 
 
-@app.route('/api/ping')
+@app.route("/api/ping")
 def ping():
-    return jsonify({'ok': True, 'service': 'edge-video-downloader'})
+    host_port = request.host.split(":")[-1]
+    return jsonify({"ok": True, "service": "edge-video-downloader",
+                    "port": int(host_port) if host_port.isdigit() else None})
 
 
 @app.route("/api/tasks", methods=["GET"])
@@ -689,7 +689,7 @@ def open_file():
 
 
 # ---------------------------------------------------------------------------
-# Execucao: servidor WSGI (waitress) + janela de status (tkinter)
+# Execucao: servidor WSGI (waitress) + icone de bandeja (pystray)
 # ---------------------------------------------------------------------------
 
 def _setup_external_paths():
@@ -739,13 +739,26 @@ def _setup_external_paths():
         pass
 
 
-def _is_running():
-    """True se ja existe um Motor Local respondendo (evita duas instancias)."""
+def is_running(port):
+    """True se ha um Motor Local (nosso) respondendo nesta porta."""
     try:
-        r = req.get(f"http://{HOST}:{PORT}/api/ping", timeout=0.8)
-        return r.status_code == 200 and r.json().get('ok') is True
+        r = req.get(f"http://{HOST}:{port}/api/ping", timeout=0.8)
+        data = r.json()
+        return r.status_code == 200 and data.get("ok") is True and \
+            data.get("service") == "edge-video-downloader"
     except Exception:
         return False
+
+
+def find_free_port(candidates=(5000, 5001, 5002)):
+    """Cria o servidor na primeira porta livre; OSError se todas ocupadas."""
+    last_error = None
+    for port in candidates:
+        try:
+            return create_server(app, host=HOST, port=port), port
+        except OSError as e:
+            last_error = e
+    raise last_error or OSError("Nenhuma porta disponivel")
 
 
 def _kill_ffmpeg_children():
@@ -776,90 +789,73 @@ def shutdown_route():
     return jsonify({"ok": True})
 
 
-def _shutdown(server, root):
-    _kill_ffmpeg_children()
+TRAY = None  # referencia global para o coletor de lixo nao derrubar o icone
+
+
+def run_tray(port):
+    """Icone na bandeja: abrir dashboard, abrir pasta, parar o motor."""
+    global TRAY
+    import pystray
+    from PIL import Image
+
+    icon_path = resource_path("icons", "icon-32.png")
     try:
-        if server is not None:
-            server.close()
+        image = Image.open(icon_path)
     except Exception:
-        pass
-    try:
-        if root is not None:
-            root.destroy()
-    except Exception:
-        pass
-    os._exit(0)
+        image = Image.new("RGB", (32, 32), "#6E56F8")
 
-
-def run_gui(server):
-    """Janela de status: mostra que o servidor esta rodando e permite parar."""
-    root = tk.Tk()
-    root.title("Edge Video Downloader - Motor Local")
-    root.geometry("440x240")
-    root.resizable(False, False)
-
-    root.protocol("WM_DELETE_WINDOW", lambda: _shutdown(server, root))
-
-    body = tk.Frame(root, padx=18, pady=14)
-    body.pack(fill="both", expand=True)
-
-    tk.Label(body, text="Edge Video Downloader", font=("Segoe UI", 15, "bold")).pack()
-    tk.Label(body, text="Motor Local", font=("Segoe UI", 10, "italic"), fg="#555").pack(pady=(0, 10))
-    tk.Label(body, text="\u25cf Servidor rodando", fg="#1a7f37", font=("Segoe UI", 10, "bold")).pack()
-    tk.Label(body, text=f"http://{HOST}:{PORT}", font=("Consolas", 11), fg="#1a73e8").pack(pady=(2, 10))
-
-    tk.Label(body, text="Pasta de downloads:", font=("Segoe UI", 9)).pack(anchor="w")
-    tk.Label(body, text=DOWNLOAD_DIR, font=("Segoe UI", 9), fg="#444",
-             wraplength=400, justify="left").pack(anchor="w")
-
-    btns = tk.Frame(body)
-    btns.pack(pady=14)
+    def open_dashboard():
+        webbrowser.open(f"http://127.0.0.1:{port}/")
 
     def open_downloads():
         try:
-            os.makedirs(DOWNLOAD_DIR, exist_ok=True)
-            os.startfile(DOWNLOAD_DIR)
-        except Exception as e:
-            messagebox.showerror("Edge Video Downloader", f"Nao foi possivel abrir a pasta:\n{e}")
+            folder = download_dir()
+            os.makedirs(folder, exist_ok=True)
+            os.startfile(folder)
+        except Exception:
+            pass
 
-    tk.Button(btns, text="Abrir pasta de downloads", command=open_downloads, padx=6).pack(side="left", padx=6)
-    tk.Button(btns, text="Parar Motor Local", command=lambda: _shutdown(server, root),
-              bg="#d93025", fg="white", padx=6).pack(side="left", padx=6)
-
-    tk.Label(root, text="A extensao do navegador usa este servidor para baixar os videos.",
-             font=("Segoe UI", 8), fg="gray").pack(side="bottom", pady=(0, 8))
-
-    try:
-        root.mainloop()
-    finally:
-        _shutdown(server, root)
+    menu = pystray.Menu(
+        pystray.MenuItem("Abrir dashboard", lambda icon, item: open_dashboard(), default=True),
+        pystray.MenuItem("Abrir pasta de downloads", lambda icon, item: open_downloads()),
+        pystray.Menu.SEPARATOR,
+        pystray.MenuItem("Parar Motor Local", lambda icon, item: shutdown_app()),
+    )
+    TRAY = pystray.Icon("EdgeVideoDownloader", image, "Edge Video Downloader - Motor Local", menu)
+    threading.Thread(target=TRAY.run, daemon=True).start()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     _setup_external_paths()
-    no_gui = '--no-gui' in sys.argv
+    no_gui = "--no-gui" in sys.argv
 
-    # Evita abrir uma segunda instancia (ex.: auto-inicio duplicado)
-    if not no_gui and _is_running():
-        sys.exit(0)
+    # Segunda instancia: apenas abre o dashboard da que ja roda.
+    if not no_gui:
+        for port in (5000, 5001, 5002):
+            if is_running(port):
+                webbrowser.open(f"http://127.0.0.1:{port}/")
+                sys.exit(0)
+
+    QUEUE.load(_history_path())
 
     try:
-        server = create_server(app, host=HOST, port=PORT)
+        server, port = find_free_port()
     except OSError as e:
         if no_gui:
             raise
-        rk = tk.Tk()
-        rk.withdraw()
-        messagebox.showerror("Edge Video Downloader",
-                             f"Nao foi possivel iniciar o servidor na porta {PORT}.\n\nDetalhe: {e}")
-        rk.destroy()
+        print(f"Nao foi possivel iniciar o servidor: {e}")
         sys.exit(1)
 
     if no_gui:
-        print(f"Backend EVD iniciado em http://{HOST}:{PORT} (servidor WSGI waitress).")
-        print(f"Downloads serao salvos em: {DOWNLOAD_DIR}")
+        print(f"Backend EVD iniciado em http://{HOST}:{port} (servidor WSGI waitress).")
+        print(f"Downloads serao salvos em: {download_dir()}")
         server.run()
     else:
-        # Servidor em thread de fundo + janela de status na thread principal
         threading.Thread(target=server.run, daemon=True).start()
-        run_gui(server)
+        webbrowser.open(f"http://127.0.0.1:{port}/")
+        run_tray(port)
+        try:
+            while True:
+                time.sleep(3600)
+        except KeyboardInterrupt:
+            shutdown_app()
