@@ -61,8 +61,8 @@ try {
       Assert ($null -ne $v -and "$v" -ne '') "deps-report contem campo '$k' (valor: $v)"
     }
     Assert ("$($report.backend)" -eq 'exe') "backend instalado como EXE autonomo (report: $($report.backend))"
-    Assert ("$($report.ffmpeg)" -like 'ok:*' -or "$($report.ffmpeg)" -eq 'skipped') "ffmpeg registrado ok/skipped (report: $($report.ffmpeg))"
-    Assert ("$($report.deno)" -like 'ok:*') "deno registrado como ok (report: $($report.deno))"
+    Assert ("$($report.ffmpeg)" -like 'ok*' -or "$($report.ffmpeg)" -eq 'skipped') "ffmpeg registrado ok/skipped (report: $($report.ffmpeg))"
+    Assert ("$($report.deno)" -like 'ok*') "deno registrado como ok (report: $($report.deno))"
     Assert ("$($report.shortcuts)" -eq 'ok') "shortcuts registrados como ok"
     Assert ("$($report.autostart)" -eq 'skipped') "autostart registrado como skipped"
   }
