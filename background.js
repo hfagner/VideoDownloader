@@ -1,4 +1,4 @@
-importScripts('libs/storage.js', 'libs/messaging.js');
+importScripts('libs/storage.js', 'libs/messaging.js', 'libs/formats.js', 'libs/backend.js');
 
 // Padrões de mídia a serem monitorados
 const MEDIA_PATTERNS = {
@@ -33,6 +33,12 @@ function generateId() {
 // pode ser encerrado e reiniciado pelo navegador a qualquer momento).
 let activeDownloadsCache = null;
 
+// Status do Motor Local (cache em memória + ping periódico)
+const BACKEND_PING_ALARM = 'backend-ping';
+const BACKEND_PING_INTERVAL_MIN = 0.5; // mínimo suportado pelo chrome.alarms
+let backendStatus = { online: false, port: null };
+let backendStatusCheckedAt = 0;
+
 const ADVANCED_POLL_ALARM = 'advanced-download-poll';
 const ADVANCED_POLL_INTERVAL_MIN = 0.5; // mínimo suportado pelo chrome.alarms (30s)
 
@@ -54,6 +60,20 @@ function broadcastDownloadUpdate() {
   chrome.runtime.sendMessage({ type: MessageType.DOWNLOAD_UPDATE }, () => {
     if (chrome.runtime.lastError) { /* nenhum listener aberto no momento */ }
   });
+}
+
+function broadcastBackendStatus() {
+  chrome.runtime.sendMessage({ type: MessageType.BACKEND_STATUS, payload: backendStatus }, () => {
+    if (chrome.runtime.lastError) { /* nenhum listener aberto */ }
+  });
+}
+
+async function refreshBackendStatus() {
+  const port = await Backend.findActivePort();
+  backendStatus = { online: port !== null, port };
+  backendStatusCheckedAt = Date.now();
+  await Storage.setBackendPort(port);
+  broadcastBackendStatus();
 }
 
 async function updateActiveBadge() {
@@ -203,8 +223,14 @@ async function pollAdvancedTasks() {
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === ADVANCED_POLL_ALARM) {
     pollAdvancedTasks();
+  } else if (alarm.name === BACKEND_PING_ALARM) {
+    refreshBackendStatus();
   }
 });
+
+// Status inicial do motor + ping periódico
+refreshBackendStatus();
+chrome.alarms.create(BACKEND_PING_ALARM, { periodInMinutes: BACKEND_PING_INTERVAL_MIN });
 
 /**
  * Atualiza o ícone e o badge da aba específica
@@ -376,6 +402,100 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
   }
 });
 
+async function getCookiesForDomain(url) {
+  return new Promise((resolve) => {
+    if (!chrome.cookies) return resolve([]);
+    try {
+      const domain = new URL(url).hostname;
+      const baseDomain = domain.split('.').slice(-2).join('.');
+      chrome.cookies.getAll({ url: url }, (cookies) => {
+        if (cookies && cookies.length > 0) return resolve(cookies);
+        chrome.cookies.getAll({ domain: baseDomain }, (cookies2) => {
+          resolve(cookies2 || []);
+        });
+      });
+    } catch (e) {
+      resolve([]);
+    }
+  });
+}
+
+async function handleAnalyze({ url, referer }) {
+  if (!backendStatus.online) {
+    return { ok: false, reason: 'backend_offline' };
+  }
+  const cache = await Storage.getAnalysisCache();
+  const entry = cache[url];
+  if (Backend.isCacheValid(entry)) {
+    return { ok: true, result: entry.result, cached: true };
+  }
+  const cookies = await getCookiesForDomain(url);
+  // Timeout de 15 s (spec §7): análise demorada vira erro com "Tentar novamente".
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15000);
+  try {
+    const response = await fetch(`http://127.0.0.1:${backendStatus.port}/api/analyze`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url, referer, cookies }),
+      signal: controller.signal
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      return { ok: false, reason: 'analyze_error', error: data.error || 'Falha na analise' };
+    }
+    cache[url] = { result: data, ts: Date.now() };
+    for (const key of Object.keys(cache)) {
+      if (!Backend.isCacheValid(cache[key])) delete cache[key];
+    }
+    await Storage.setAnalysisCache(cache);
+    return { ok: true, result: data, cached: false };
+  } catch (e) {
+    return { ok: false, reason: 'backend_unreachable' };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function handleStartDownload({ item, filename, selector, formatUrl, audio }) {
+  const url = formatUrl || (item && item.url);
+  if (!url) return { ok: false, reason: 'no_url' };
+
+  if (backendStatus.online) {
+    const cookies = await getCookiesForDomain(url);
+    try {
+      const response = await fetch(`http://127.0.0.1:${backendStatus.port}/api/download`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          url,
+          referer: item.pageUrl,
+          cookies,
+          audio: !!audio,
+          selector: selector || null,
+          format_id: selector ? null : (formatUrl || null),
+          filename,
+          format_label: (item && item.format_label) || ''
+        })
+      });
+      const data = await response.json();
+      if (response.ok && data.task_id) {
+        startAdvancedDownloadTracking({ taskId: data.task_id, url, filename });
+        return { ok: true, kind: 'advanced', taskId: data.task_id };
+      }
+      return { ok: false, reason: 'backend_error', error: data.error || 'Erro no Motor Local' };
+    } catch (e) {
+      return { ok: false, reason: 'backend_unreachable' };
+    }
+  }
+
+  if (Formats.isDirectFile(item)) {
+    const ok = await startDownload(url, filename, item.tabId);
+    return ok ? { ok: true, kind: 'native' } : { ok: false, reason: 'native_failed' };
+  }
+  return { ok: false, reason: 'backend_offline' };
+}
+
 // Listener central de Mensagens
 Messaging.addListener((message, sender, sendResponse) => {
   if (message.type === MessageType.GET_MEDIA) {
@@ -396,9 +516,21 @@ Messaging.addListener((message, sender, sendResponse) => {
   }
   
   if (message.type === MessageType.START_DOWNLOAD) {
-    const { url, filename } = message.payload;
-    const tabId = message.payload.tabId || (sender.tab ? sender.tab.id : null);
-    startDownload(url, filename, tabId).then(success => sendResponse({ success }));
+    handleStartDownload(message.payload || {}).then(sendResponse);
+    return true; // async
+  }
+
+  if (message.type === MessageType.BACKEND_STATUS) {
+    if (Date.now() - backendStatusCheckedAt > 10000) {
+      refreshBackendStatus().then(() => sendResponse(backendStatus));
+      return true; // async
+    }
+    sendResponse(backendStatus);
+    return false;
+  }
+
+  if (message.type === MessageType.ANALYZE_MEDIA) {
+    handleAnalyze(message.payload || {}).then(sendResponse);
     return true; // async
   }
 
