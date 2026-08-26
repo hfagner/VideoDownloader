@@ -12,11 +12,18 @@
   Modo silencioso (sem saida interativa).
 #>
 [CmdletBinding()]
-param([switch]$Q)
+param(
+  [switch]$Q,
+  # Sobrescritas usadas nos testes de integracao; o desinstalador real usa
+  # os caminhos padrao (%LOCALAPPDATA%\EdgeVideoDownloader, Desktop/Menu reais)
+  [string]$InstallDir = (Join-Path $env:LOCALAPPDATA 'EdgeVideoDownloader'),
+  [string]$DesktopOverride,
+  [string]$StartMenuOverride
+)
 
 function Write-Msg { if (-not $Q) { Write-Host $args } }
 
-$installDir = Join-Path $env:LOCALAPPDATA 'EdgeVideoDownloader'
+$installDir = $InstallDir
 
 # 1) Parar o backend (EXE autonomo ou python.exe apontando para este instalacao)
 Write-Msg "Parando o backend (se em execucao)..."
@@ -27,12 +34,13 @@ try {
     ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 } catch { }
 
-# 2) Remover atalhos
-$desktop = [Environment]::GetFolderPath('Desktop')
-foreach ($f in @('Edge Video Downloader.lnk','Chrome Video Downloader.lnk','Motor Local.lnk')) {
+# 2) Remover atalhos (Dashboard incluso)
+$desktop = if ($DesktopOverride) { $DesktopOverride } else { [Environment]::GetFolderPath('Desktop') }
+foreach ($f in @('Edge Video Downloader.lnk','Chrome Video Downloader.lnk','Motor Local.lnk','Dashboard.lnk')) {
   Remove-Item -LiteralPath (Join-Path $desktop $f) -Force -ErrorAction SilentlyContinue
 }
-$sm = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Edge Video Downloader'
+$sm = if ($StartMenuOverride) { (Join-Path $StartMenuOverride 'Edge Video Downloader') } `
+      else { Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Edge Video Downloader' }
 Remove-Item -LiteralPath $sm -Recurse -Force -ErrorAction SilentlyContinue
 
 # 3) Remover auto-inicio
@@ -47,6 +55,9 @@ Remove-Item -LiteralPath $unreg -Recurse -Force -ErrorAction SilentlyContinue
 if (Test-Path -LiteralPath $installDir) {
   Remove-Item -LiteralPath $installDir -Recurse -Force -ErrorAction SilentlyContinue
 }
+
+# Nota: o Deno instalado em %USERPROFILE%\.deno\bin e PRESERVADO de proposito —
+# e uma ferramenta de usuario compartilhada (o backend do YouTube a utiliza).
 
 Write-Msg "Edge Video Downloader desinstalado com sucesso."
 if (-not $Q) { Start-Sleep -Seconds 2 }

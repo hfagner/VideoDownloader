@@ -27,12 +27,17 @@ param(
   [string]$InstallDir = (Join-Path $env:LOCALAPPDATA 'EdgeVideoDownloader'),
   [switch]$NoBackend,
   [switch]$NoFfmpeg,
+  [switch]$NoDeno,
   [switch]$NoShortcuts,
   [switch]$NoAutostart,
   [switch]$NoLaunch,
   [switch]$SkipUninstaller,
   [switch]$NoPause,
-  [switch]$Quiet
+  [switch]$Quiet,
+  # Sobrescritas de pastas de atalhos (usadas nos testes de integracao; o
+  # instalador real usa o Desktop e o Menu Iniciar reais do usuario)
+  [string]$DesktopOverride,
+  [string]$StartMenuOverride
 )
 
 # ---------------------------------------------------------------------------
@@ -50,7 +55,15 @@ $script:EdgeExe       = $null
 $script:ChromeExe     = $null
 $script:BackendUrl    = 'http://127.0.0.1:5000'
 $script:BackendExe    = $null
-$script:PinnedVersion = '1.0.0'
+$script:PinnedVersion = '1.1.0'
+# Relatorio de dependencias consumido pela tela final do Setup.exe (Inno)
+$script:DepsReport = [ordered]@{
+  backend   = ''
+  ffmpeg    = ''
+  deno      = ''
+  shortcuts = ''
+  autostart = ''
+}
 
 if (-not $SourceRoot) {
   $SourceRoot = Split-Path -Parent $PSScriptRoot
@@ -181,6 +194,7 @@ function Setup-Backend {
         Copy-Item -LiteralPath $cand -Destination $destExe -Force
       }
       $script:BackendExe = $destExe
+      $script:DepsReport.backend = 'exe'
       Write-Ok "Backend instalado como EXE autonomo (sem exigir Python no usuario)."
       return
     }
@@ -203,16 +217,18 @@ function Setup-Backend {
   $c1 = Invoke-Process -Exe $venvPy -Args @('-m','pip','install','--upgrade','pip') -WorkingDir $script:BackendDir -LogFile $log
   $c2 = Invoke-Process -Exe $venvPy -Args @('-m','pip','install','-r',(Join-Path $script:BackendDir 'requirements.txt')) -WorkingDir $script:BackendDir -LogFile $log
   if ($c1 -ne 0 -or $c2 -ne 0) { throw "Falha ao instalar dependencias do backend. Veja $log" }
+  $script:DepsReport.backend = 'venv'
 }
 
 # ---------------------------------------------------------------------------
 # FFmpeg (opcional, para streams HLS)
 # ---------------------------------------------------------------------------
 function Get-OrInstall-Ffmpeg {
-  if ($NoFfmpeg) { Write-Warn "FFmpeg ignorado (-NoFfmpeg)."; return }
+  if ($NoFfmpeg) { $script:DepsReport.ffmpeg = 'skipped'; Write-Warn "FFmpeg ignorado (-NoFfmpeg)."; return }
   $ff = Get-Command ffmpeg -ErrorAction SilentlyContinue
   if ($ff) {
     $script:FFmpegBin = Split-Path -Parent $ff.Source
+    $script:DepsReport.ffmpeg = "ok:$($script:FFmpegBin)"
     Write-Ok "FFmpeg encontrado no PATH: $($script:FFmpegBin)"
     return
   }
@@ -229,13 +245,59 @@ function Get-OrInstall-Ffmpeg {
     $exe = Get-ChildItem -LiteralPath $extract -Recurse -Filter 'ffmpeg.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($exe) {
       $script:FFmpegBin = $exe.DirectoryName
+      $script:DepsReport.ffmpeg = "ok:$($script:FFmpegBin)"
       Write-Ok "FFmpeg instalado em $($script:FFmpegBin)"
     } else {
+      $script:DepsReport.ffmpeg = 'failed:binario nao localizado'
       Write-Warn 'FFmpeg extraido mas binario nao localizado.'
     }
     Remove-Item -LiteralPath $zip -Force -ErrorAction SilentlyContinue
   } catch {
+    $script:DepsReport.ffmpeg = "failed:$($_.Exception.Message)"
     Write-Warn "Nao foi possivel baixar o FFmpeg automaticamente. Baixe em https://www.gyan.dev/ffmpeg/builds/ e adicione o bin ao PATH, ou rode com -NoFfmpeg."
+  }
+}
+
+# ---------------------------------------------------------------------------
+# Deno (runtime JS usado pelo yt-dlp para extracao robusta do YouTube)
+# Instalado em %USERPROFILE%\.deno\bin — local que o backend ja procura.
+# ---------------------------------------------------------------------------
+function Install-Deno {
+  if ($NoDeno) { $script:DepsReport.deno = 'skipped'; Write-Warn "Deno ignorado (-NoDeno)."; return }
+  $homeDeno = Join-Path $env:USERPROFILE '.deno\bin\deno.exe'
+  if (Test-Path -LiteralPath $homeDeno) {
+    $script:DepsReport.deno = "ok:$homeDeno"
+    Write-Ok "Deno encontrado: $homeDeno"
+    return
+  }
+  $cmd = Get-Command deno -ErrorAction SilentlyContinue
+  if ($cmd) {
+    $script:DepsReport.deno = "ok:$($cmd.Source)"
+    Write-Ok "Deno encontrado no PATH: $($cmd.Source)"
+    return
+  }
+  Write-Step "Baixando Deno (necessario para downloads robustos do YouTube)"
+  $zipDir = Join-Path $InstallDir 'tmp'
+  New-EmptyDir $zipDir
+  $zip = Join-Path $zipDir 'deno.zip'
+  $url = 'https://github.com/denoland/deno/releases/latest/download/deno-x86_64-pc-windows-msvc.zip'
+  try {
+    Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing
+    New-EmptyDir (Join-Path $env:USERPROFILE '.deno\bin')
+    Expand-Archive -LiteralPath $zip -DestinationPath $zipDir -Force
+    $exe = Get-ChildItem -LiteralPath $zipDir -Filter 'deno.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($exe) {
+      Move-Item -LiteralPath $exe.FullName -Destination $homeDeno -Force
+      $script:DepsReport.deno = "ok:$homeDeno"
+      Write-Ok "Deno instalado em $homeDeno"
+    } else {
+      $script:DepsReport.deno = 'failed:binario nao localizado no zip'
+      Write-Warn 'Deno baixado mas binario nao localizado.'
+    }
+    Remove-Item -LiteralPath $zip -Force -ErrorAction SilentlyContinue
+  } catch {
+    $script:DepsReport.deno = "failed:$($_.Exception.Message)"
+    Write-Warn "Nao foi possivel baixar o Deno. Baixe manualmente em https://deno.com e adicione ao PATH (o YouTube pode ficar instavel sem ele)."
   }
 }
 
@@ -248,6 +310,15 @@ function Install-ExtensionFiles {
   # A extensao pode estar na raiz do SourceRoot (projeto) ou em SourceRoot\extension
   $extRoot = Join-Path $script:SourceRoot 'extension'
   if (-not (Test-Path -LiteralPath $extRoot)) { $extRoot = $script:SourceRoot }
+  # O Inno Setup ja copia os arquivos para {app}\extension antes do [Run]; quando
+  # origem e destino sao a mesma pasta, nao ha nada a copiar (Copy-Item sobre si
+  # mesmo falha com erro nao-terminante que vira fatal com ErrorActionPreference=Stop).
+  $srcFull = [System.IO.Path]::GetFullPath($extRoot)
+  $dstFull = [System.IO.Path]::GetFullPath($script:ExtensionDir)
+  if ($srcFull.Equals($dstFull, [System.StringComparison]::OrdinalIgnoreCase)) {
+    Write-Ok "Extensao ja presente em $($script:ExtensionDir) (copiada pelo Setup)."
+    return
+  }
   foreach ($f in @('manifest.json','background.js','content.js')) {
     $srcFile = Join-Path $extRoot $f
     if (Test-Path -LiteralPath $srcFile) { Copy-Item -LiteralPath $srcFile -Destination $script:ExtensionDir -Force }
@@ -312,6 +383,19 @@ function New-BrowserShortcut {
   Write-Ok "Atalho criado em $lnk"
 }
 
+function New-UrlShortcut {
+  param([string]$Name, [string]$Url, [string]$Icon, [string]$Folder)
+  New-EmptyDir $Folder
+  $lnk = Join-Path $Folder "$Name.lnk"
+  $ws = New-Object -ComObject WScript.Shell
+  $sc = $ws.CreateShortcut($lnk)
+  $sc.TargetPath = $Url
+  if ($Icon -and (Test-Path -LiteralPath $Icon)) { $sc.IconLocation = "$Icon,0" }
+  $sc.Description = "$Name - Edge Video Downloader"
+  $sc.Save()
+  Write-Ok "Atalho criado em $lnk"
+}
+
 function New-BackendShortcut {
   param([string]$LnkPath)
   $ws = New-Object -ComObject WScript.Shell
@@ -331,13 +415,14 @@ function New-BackendShortcut {
 }
 
 function Create-Shortcuts {
-  if ($NoShortcuts) { Write-Warn "Atalhos ignorados (-NoShortcuts)."; return }
+  if ($NoShortcuts) { $script:DepsReport.shortcuts = 'skipped'; Write-Warn "Atalhos ignorados (-NoShortcuts)."; return }
   Write-Step "Criando atalhos"
   $ext = $script:ExtensionDir
   $workaround = '--disable-features=DisableLoadExtensionCommandLineSwitch'
   $icon = Join-Path $ext 'icons\icon-128.png'
-  $desktop = [Environment]::GetFolderPath('Desktop')
-  $sm = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Edge Video Downloader'
+  $desktop = if ($DesktopOverride) { $DesktopOverride } else { [Environment]::GetFolderPath('Desktop') }
+  $sm = if ($StartMenuOverride) { (Join-Path $StartMenuOverride 'Edge Video Downloader') } `
+        else { Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Edge Video Downloader' }
   New-EmptyDir $sm
 
   if ($script:EdgeExe) {
@@ -356,14 +441,18 @@ function Create-Shortcuts {
     # Atalho do Motor Local (aplicacao backend): no Menu Iniciar e na Area de Trabalho
     New-BackendShortcut -LnkPath (Join-Path $sm 'Motor Local.lnk')
     New-BackendShortcut -LnkPath (Join-Path $desktop 'Motor Local.lnk')
+    # Atalho do Dashboard (abre o painel web do Motor Local no navegador padrao)
+    New-UrlShortcut -Name 'Dashboard' -Url $script:BackendUrl -Icon $icon -Folder $desktop
+    New-UrlShortcut -Name 'Dashboard' -Url $script:BackendUrl -Icon $icon -Folder $sm
   }
+  $script:DepsReport.shortcuts = 'ok'
 }
 
 # ---------------------------------------------------------------------------
 # Auto-inicio do backend
 # ---------------------------------------------------------------------------
 function Register-Autostart {
-  if ($NoBackend -or $NoAutostart) { Write-Warn "Auto-inicio ignorado."; return }
+  if ($NoBackend -or $NoAutostart) { $script:DepsReport.autostart = 'skipped'; Write-Warn "Auto-inicio ignorado."; return }
   Write-Step "Registrando auto-inicio do backend"
   $startup = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Startup'
   New-EmptyDir $startup
@@ -379,7 +468,8 @@ function Register-Autostart {
   $sc.WorkingDirectory = $script:BackendDir
   $sc.IconLocation = "$(Join-Path $script:ExtensionDir 'icons\icon-128.png'),0"
   $sc.Save()
-  Write-Ok "Backend iniciara automaticamente no login (janela de status)."
+  $script:DepsReport.autostart = 'ok'
+  Write-Ok "Backend iniciara automaticamente no login (bandeja)."
 }
 
 # ---------------------------------------------------------------------------
@@ -400,11 +490,31 @@ function Register-Uninstaller {
   New-ItemProperty -LiteralPath $str -Name 'DisplayIcon' -Value (Join-Path $script:ExtensionDir 'icons\icon-128.png') -PropertyType String -Force | Out-Null
   New-ItemProperty -LiteralPath $str -Name 'InstallLocation' -Value $InstallDir -PropertyType String -Force | Out-Null
   New-ItemProperty -LiteralPath $str -Name 'InstallDate' -Value (Get-Date -Format 'yyyyMMdd') -PropertyType String -Force | Out-Null
-  New-ItemProperty -LiteralPath $str -Name 'UninstallString' -Value "`"$uninstallCmd`"" -PropertyType String -Force | Out-Null
-  New-ItemProperty -LiteralPath $str -Name 'QuietUninstallString' -Value "`"$uninstallCmd`" -Q" -PropertyType String -Force | Out-Null
+  New-ItemProperty -LiteralPath $str -Name 'UninstallString' -Value "`"$uninstallCmd`" -InstallDir `"$InstallDir`"" -PropertyType String -Force | Out-Null
+  New-ItemProperty -LiteralPath $str -Name 'QuietUninstallString' -Value "`"$uninstallCmd`" -Q -InstallDir `"$InstallDir`"" -PropertyType String -Force | Out-Null
   New-ItemProperty -LiteralPath $str -Name 'NoModify' -Value 1 -PropertyType DWord -Force | Out-Null
   New-ItemProperty -LiteralPath $str -Name 'NoRepair' -Value 1 -PropertyType DWord -Force | Out-Null
   Write-Ok "Desinstalador registrado."
+}
+
+# ---------------------------------------------------------------------------
+# Relatorio de dependencias (consumido pela tela final do Setup.exe Inno)
+# ---------------------------------------------------------------------------
+function Write-DepsReport {
+  try {
+    $json = $script:DepsReport | ConvertTo-Json
+    $json | Set-Content -LiteralPath (Join-Path $script:ToolsDir 'deps-report.json') -Encoding UTF8
+    # Versao texto pronta para exibicao (o [Code] do Inno apenas carrega e mostra)
+    $txt  = "FFmpeg ....... $($script:DepsReport.ffmpeg)`r`n"
+    $txt += "Deno ......... $($script:DepsReport.deno)`r`n"
+    $txt += "Backend ...... $($script:DepsReport.backend)`r`n"
+    $txt += "Atalhos ...... $($script:DepsReport.shortcuts)`r`n"
+    $txt += "Auto-inicio .. $($script:DepsReport.autostart)"
+    $txt | Set-Content -LiteralPath (Join-Path $script:ToolsDir 'deps-report.txt') -Encoding UTF8
+    Write-Ok "Relatorio de dependencias gravado em $($script:ToolsDir)"
+  } catch {
+    Write-Warn "Nao foi possivel gravar o relatorio de dependencias."
+  }
 }
 
 # ---------------------------------------------------------------------------
@@ -417,6 +527,9 @@ function Show-Summary {
   Write-Host "  Extensao : $($script:ExtensionDir)"
   Write-Host "  Backend  : $($script:BackendUrl)  (Motor Local)"
   Write-Host "  Downloads: %USERPROFILE%\Downloads\EdgeVideoDownloader"
+  Write-Host "  FFmpeg   : $($script:DepsReport.ffmpeg)"
+  Write-Host "  Deno     : $($script:DepsReport.deno)"
+  Write-Host "  Atalhos  : Menu Iniciar + Desktop (Motor Local, Dashboard, navegadores)"
   if ($script:EdgeExe)   { Write-Host "  Edge   : atalho criado com a extensao carregada." }
   if ($script:ChromeExe) { Write-Host "  Chrome : atalho criado com a extensao carregada." }
   if (-not $script:EdgeExe -and -not $script:ChromeExe) { Write-Warn "Nenhum navegador Edge/Chrome detectado." }
@@ -436,18 +549,30 @@ New-EmptyDir $script:ToolsDir
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'Uninstall-EdgeVideoDownloader.ps1') -Destination $script:ToolsDir -Force -ErrorAction SilentlyContinue
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'Uninstall-EdgeVideoDownloader.cmd') -Destination $script:ToolsDir -Force -ErrorAction SilentlyContinue
 
-$script:EdgeExe   = Resolve-EdgeExe
-$script:ChromeExe = Resolve-ChromeExe
+try {
+  $script:EdgeExe   = Resolve-EdgeExe
+  $script:ChromeExe = Resolve-ChromeExe
 
-Install-ExtensionFiles
-if (-not $NoBackend) { Setup-Backend }
-Get-OrInstall-Ffmpeg
-Write-StartScripts
-Create-Shortcuts
-Register-Autostart
-if (-not $SkipUninstaller) { Register-Uninstaller }
+  Install-ExtensionFiles
+  if (-not $NoBackend) { Setup-Backend }
+  Get-OrInstall-Ffmpeg
+  Install-Deno
+  Write-StartScripts
+  Create-Shortcuts
+  Register-Autostart
+  if (-not $SkipUninstaller) { Register-Uninstaller }
 
-Show-Summary
+  Show-Summary
+}
+catch {
+  Write-Err $_.Exception.Message
+  Write-DepsReport
+  throw
+}
+finally {
+  # Garante o relatorio mesmo nos caminhos sem excecao
+  Write-DepsReport
+}
 
 if ($NoLaunch) { exit 0 }
 $ext = $script:ExtensionDir
