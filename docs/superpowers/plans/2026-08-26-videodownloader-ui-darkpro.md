@@ -3049,7 +3049,6 @@ body {
 main { padding: 12px; display: flex; flex-direction: column; gap: 12px; flex: 1; }
 
 .empty-state { text-align: center; padding: 30px 16px; color: var(--text-3); font-size: 12px; }
-.empty-state.hidden, .hidden { display: none; }
 .empty-icon { font-size: 26px; margin-bottom: 8px; }
 .empty-title { font-weight: 600; color: var(--text); }
 .empty-hint { margin-top: 5px; font-size: 10.5px; }
@@ -3286,6 +3285,11 @@ main { padding: 12px; display: flex; flex-direction: column; gap: 12px; flex: 1;
   font-family: inherit;
 }
 .btn-text:hover { color: var(--text); }
+
+/* Utilidade .hidden — declarada por último para vencer regras display:flex/none
+   (fix round: mesma especificidade, a última declaração vence) */
+.empty-state.hidden,
+.hidden { display: none; }
 ```
 
 - [ ] **Step 3: Reescrever `popup/popup.js`**
