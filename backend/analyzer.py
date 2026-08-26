@@ -6,6 +6,7 @@ rede (m3u8 / yt-dlp) e delega a elas.
 import os
 import re
 import tempfile
+import uuid
 from urllib.parse import urljoin
 
 import requests as req
@@ -229,7 +230,7 @@ def _analyze_direct(url, referer, default_quality):
 def _analyze_ytdlp(url, referer, cookies_list, default_quality):
     import yt_dlp
 
-    cookie_file = write_cookie_file(cookies_list, f"analyze_{os.getpid()}")
+    cookie_file = write_cookie_file(cookies_list, f"analyze_{uuid.uuid4().hex}")
     ydl_opts = {"quiet": True, "no_warnings": True, "noplaylist": True}
     http_headers = {"User-Agent": UA, "Accept-Language": "pt-BR,pt;q=0.9"}
     if referer:

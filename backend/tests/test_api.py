@@ -188,3 +188,16 @@ def test_finalize_file_nao_renomeia_quando_nome_ja_correto(monkeypatch, tmp_path
 
     assert (tmp_path / "Titulo.mp4").exists()
     assert q.get(task_id).get("size") == 50
+
+
+def test_cors_permite_extensao_e_bloqueia_web(client):
+    r_ok = client.get("/api/ping", headers={"Origin": "chrome-extension://abcdefghijklmnop"})
+    assert r_ok.headers.get("Access-Control-Allow-Origin") == "chrome-extension://abcdefghijklmnop"
+    r_bad = client.get("/api/ping", headers={"Origin": "https://evil.example.com"})
+    assert "Access-Control-Allow-Origin" not in r_bad.headers
+
+
+def test_hls_output_name_remove_extensao_da_fonte():
+    assert srv._hls_output_name("hotmart_abc.mp4") == "hotmart_abc.mp4"
+    assert srv._hls_output_name("stream.m3u8") == "stream.mp4"
+    assert srv._hls_output_name(None) == "hotmart_video.mp4"

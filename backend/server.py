@@ -72,6 +72,12 @@ def sanitize_filename(name, default="video"):
     return safe if safe.strip(" -") else default
 
 
+def _hls_output_name(filename):
+    """Nome do arquivo HLS: extensao da fonte removida; .mp4 e sempre o alvo."""
+    safe = sanitize_filename(filename or "hotmart_video", "hotmart_video")
+    return os.path.splitext(safe)[0] + ".mp4"
+
+
 def _outtmpl_for(filename):
     """Template de saida do yt-dlp: usa o nome escolhido pelo usuario SEM
     extensao (o yt-dlp adiciona a correta no download/pos-processamento);
@@ -275,7 +281,7 @@ def _history_path():
     return data_dir() / "history.json"
 
 app = Flask(__name__)
-CORS(app)
+CORS(app, origins=r"chrome-extension://.*")
 
 HOST = '127.0.0.1'
 PORT = 5000
@@ -496,9 +502,9 @@ def _download_hls(queue, task, url, referer, format_id, filename):
     """Download de stream HLS direto via ffmpeg (variante format_id opcional)."""
     task_id = task["id"]
     target_url = format_id or url
-    safe_name = sanitize_filename(filename or "hotmart_video", "hotmart_video")
-    output_path = os.path.join(download_dir(), safe_name + ".mp4")
-    queue.set(task_id, filename=safe_name + ".mp4")
+    output_name = _hls_output_name(filename)
+    output_path = os.path.join(download_dir(), output_name)
+    queue.set(task_id, filename=output_name)
 
     cmd = ["ffmpeg", "-y",
            "-protocol_whitelist", "file,http,https,tcp,tls,crypto",
@@ -538,7 +544,7 @@ def _download_hls(queue, task, url, referer, format_id, filename):
         if proc.returncode == 0:
             queue.set(task_id, status="completed", progress="100%",
                       completed_at=time.time())
-            _record_final_size(queue, task_id, safe_name + ".mp4")
+            _record_final_size(queue, task_id, output_name)
         else:
             raise RuntimeError(f"ffmpeg saiu com codigo {proc.returncode}")
     except Exception as e:

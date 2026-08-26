@@ -85,3 +85,15 @@ def test_pick_best_id_respeita_qualidade():
     assert pick_best_id(formats, "720p") == "h720"
     assert pick_best_id(formats, "480p") == "h480"
     assert pick_best_id(formats, "max") == "h1080"
+
+
+def test_cookie_file_ids_distintos_por_chamada():
+    from analyzer import write_cookie_file
+    cookies = [{"name": "a", "value": "b", "domain": ".ex.com", "path": "/"}]
+    p1 = write_cookie_file(cookies, "analyze_aaaa")
+    p2 = write_cookie_file(cookies, "analyze_bbbb")
+    assert p1 and p2 and p1 != p2
+    import os as _os
+    for p in (p1, p2):
+        if _os.path.exists(p):
+            _os.remove(p)
