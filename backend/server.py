@@ -27,7 +27,7 @@ DEFAULT_CONFIG = {
 
 
 def data_dir():
-    """Diretório de dados (config/histórico): backend/data em dev;
+    """Diretorio de dados (config/historico): backend/data em dev;
     %LOCALAPPDATA%/EdgeVideoDownloader quando congelado pelo PyInstaller."""
     if getattr(sys, "frozen", False):
         base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
