@@ -228,7 +228,7 @@ function Get-OrInstall-Ffmpeg {
   $ff = Get-Command ffmpeg -ErrorAction SilentlyContinue
   if ($ff) {
     $script:FFmpegBin = Split-Path -Parent $ff.Source
-    $script:DepsReport.ffmpeg = "ok:$($script:FFmpegBin)"
+    $script:DepsReport.ffmpeg = "ok [$($script:FFmpegBin)]"
     Write-Ok "FFmpeg encontrado no PATH: $($script:FFmpegBin)"
     return
   }
@@ -245,7 +245,7 @@ function Get-OrInstall-Ffmpeg {
     $exe = Get-ChildItem -LiteralPath $extract -Recurse -Filter 'ffmpeg.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($exe) {
       $script:FFmpegBin = $exe.DirectoryName
-      $script:DepsReport.ffmpeg = "ok:$($script:FFmpegBin)"
+      $script:DepsReport.ffmpeg = "ok [$($script:FFmpegBin)]"
       Write-Ok "FFmpeg instalado em $($script:FFmpegBin)"
     } else {
       $script:DepsReport.ffmpeg = 'failed:binario nao localizado'
@@ -266,13 +266,13 @@ function Install-Deno {
   if ($NoDeno) { $script:DepsReport.deno = 'skipped'; Write-Warn "Deno ignorado (-NoDeno)."; return }
   $homeDeno = Join-Path $env:USERPROFILE '.deno\bin\deno.exe'
   if (Test-Path -LiteralPath $homeDeno) {
-    $script:DepsReport.deno = "ok:$homeDeno"
+    $script:DepsReport.deno = "ok [$homeDeno]"
     Write-Ok "Deno encontrado: $homeDeno"
     return
   }
   $cmd = Get-Command deno -ErrorAction SilentlyContinue
   if ($cmd) {
-    $script:DepsReport.deno = "ok:$($cmd.Source)"
+    $script:DepsReport.deno = "ok [$($cmd.Source)]"
     Write-Ok "Deno encontrado no PATH: $($cmd.Source)"
     return
   }
@@ -288,7 +288,7 @@ function Install-Deno {
     $exe = Get-ChildItem -LiteralPath $zipDir -Filter 'deno.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($exe) {
       Move-Item -LiteralPath $exe.FullName -Destination $homeDeno -Force
-      $script:DepsReport.deno = "ok:$homeDeno"
+      $script:DepsReport.deno = "ok [$homeDeno]"
       Write-Ok "Deno instalado em $homeDeno"
     } else {
       $script:DepsReport.deno = 'failed:binario nao localizado no zip'
@@ -510,7 +510,10 @@ function Write-DepsReport {
     $txt += "Backend ...... $($script:DepsReport.backend)`r`n"
     $txt += "Atalhos ...... $($script:DepsReport.shortcuts)`r`n"
     $txt += "Auto-inicio .. $($script:DepsReport.autostart)"
-    $txt | Set-Content -LiteralPath (Join-Path $script:ToolsDir 'deps-report.txt') -Encoding UTF8
+    # UTF8 sem BOM — o Inno Setup le como AnsiString e o BOM (EF BB BF)
+    # aparecia como lixo (ï»¿) na tela final.
+    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllText((Join-Path $script:ToolsDir 'deps-report.txt'), $txt, $utf8NoBom)
     Write-Ok "Relatorio de dependencias gravado em $($script:ToolsDir)"
   } catch {
     Write-Warn "Nao foi possivel gravar o relatorio de dependencias."

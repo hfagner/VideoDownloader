@@ -21,7 +21,7 @@ OutputBaseFilename=EdgeVideoDownloaderSetup
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
-UninstallDisplayIcon={app}\extension\icons\icon-128.png
+UninstallDisplayIcon={app}\icons\icon.ico
 DisableProgramGroupPage=yes
 UsePreviousAppDir=yes
 ShowLanguageDialog=auto
@@ -49,6 +49,8 @@ Source: "..\libs\*"; DestDir: "{app}\extension\libs"; Flags: ignoreversion recur
 Source: "..\popup\*"; DestDir: "{app}\extension\popup"; Flags: ignoreversion recursesubdirs
 Source: "..\options\*"; DestDir: "{app}\extension\options"; Flags: ignoreversion recursesubdirs
 Source: "..\icons\*"; DestDir: "{app}\extension\icons"; Flags: ignoreversion recursesubdirs
+; Icone .ico para atalhos do Windows (shortcuts nao suportam PNG)
+Source: "..\icons\icon.ico"; DestDir: "{app}\icons"; Flags: ignoreversion
 
 ; --- Backend (Motor Local) ---
 ; server.py/requirements sao usados apenas no fallback via venv
@@ -66,11 +68,17 @@ Source: "Uninstall-EdgeVideoDownloader.ps1"; DestDir: "{app}\tools"; Flags: igno
 Source: "Uninstall-EdgeVideoDownloader.cmd"; DestDir: "{app}\tools"; Flags: ignoreversion
 Source: "requirements.txt"; DestDir: "{app}\tools"; Flags: ignoreversion
 
+[Icons]
+; Atalho do backend (Motor Local) na Area de Trabalho
+Name: "{userdesktop}\Motor Local - Edge Video Downloader"; Filename: "{app}\backend\EdgeVideoDownloaderBackend.exe"; \
+  WorkingDir: "{app}\backend"; IconFilename: "{app}\icons\icon.ico"; \
+  Comment: "Motor Local - Edge Video Downloader"
+
 [Run]
-; Configura backend (EXE autonomo), FFmpeg, Deno e atalhos — AGUARDA o fim
-; para que o relatorio de dependencias exista antes da tela final.
+; Configura backend (EXE autonomo), FFmpeg, Deno — SEM atalhos (criados pela secao [Icons] acima).
+; AGUARDA o fim para que o relatorio de dependencias exista antes da tela final.
 Filename: "powershell.exe"; \
-  Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\tools\Setup-EdgeVideoDownloader.ps1"" -SourceRoot ""{app}"" -InstallDir ""{app}"" -NoLaunch -SkipUninstaller -Quiet"; \
+  Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\tools\Setup-EdgeVideoDownloader.ps1"" -SourceRoot ""{app}"" -InstallDir ""{app}"" -NoLaunch -SkipUninstaller -NoShortcuts -Quiet"; \
   StatusMsg: "Configurando backend e dependencias (FFmpeg/Deno)..." ; Flags: runhidden
 
 [UninstallRun]
@@ -84,6 +92,37 @@ Filename: "powershell.exe"; \
 [Code]
 var
   OpenEdgeBtn: TNewButton;
+  CopyPathBtn: TNewButton;
+
+(* Texto de instrucoes para a tela final do instalador.
+   Construido com #13#10 reais porque %n do CustomMessage
+   nao e convertido em newline dentro de [Code]. *)
+function GetEdgeStepsText: string;
+begin
+  Result :=
+    'Para ativar a extensao no Edge:' + #13#10 + #13#10 +
+    '1. Abra edge://extensions no Microsoft Edge' + #13#10 +
+    '2. Ative o "Modo de desenvolvedor" (canto superior direito)' + #13#10 +
+    '3. Clique em "Carregar sem compactacao / Load unpacked"' + #13#10 +
+    '4. Selecione a pasta (use o botao Copiar abaixo):' + #13#10 +
+    '   ' + ExpandConstant('{app}\extension');
+end;
+
+procedure CopyExtensionPath;
+var
+  Res: Integer;
+  ExtPath: string;
+begin
+  ExtPath := ExpandConstant('{app}\extension');
+  { Copia o caminho para a area de transferencia via cmd + clip }
+  Exec('cmd.exe', '/c echo ' + ExtPath + '| clip', '', SW_HIDE, ewWaitUntilTerminated, Res);
+end;
+
+procedure CopyPathBtnClick(Sender: TObject);
+begin
+  CopyExtensionPath;
+  CopyPathBtn.Caption := 'Copiado!';
+end;
 
 procedure OpenEdgeExtensions;
 var
@@ -104,7 +143,8 @@ begin
     if not FileExists(EdgePath) then EdgePath := '';
   end;
   if EdgePath <> '' then
-    Exec(EdgePath, 'edge://extensions', '', SW_SHOWNORMAL, ewNoWait, Res)
+    { ShellExec suporta URLs de protocolo (edge://) via ShellExecuteEx }
+    ShellExec('open', EdgePath, 'edge://extensions', '', SW_SHOWNORMAL, ewNoWait, Res)
   else
     MsgBox(CustomMessage('EdgeNotFound'), mbInformation, MB_OK);
 end;
@@ -116,40 +156,61 @@ end;
 
 procedure InitializeWizard;
 begin
+  { Botao "Abrir edge://extensions" }
   OpenEdgeBtn := TNewButton.Create(WizardForm);
-  OpenEdgeBtn.Parent := WizardForm;
-  OpenEdgeBtn.Width := ScaleX(220);
-  OpenEdgeBtn.Height := WizardForm.CancelButton.Height;
+  OpenEdgeBtn.Parent := WizardForm.FinishedPage;
+  OpenEdgeBtn.Width := ScaleX(200);
+  OpenEdgeBtn.Height := ScaleY(30);
   OpenEdgeBtn.Caption := CustomMessage('OpenEdgeBtn');
   OpenEdgeBtn.OnClick := @OpenEdgeBtnClick;
   OpenEdgeBtn.Visible := False;
+
+  { Botao "Copiar caminho" }
+  CopyPathBtn := TNewButton.Create(WizardForm);
+  CopyPathBtn.Parent := WizardForm.FinishedPage;
+  CopyPathBtn.Width := ScaleX(160);
+  CopyPathBtn.Height := ScaleY(30);
+  CopyPathBtn.Caption := 'Copiar caminho';
+  CopyPathBtn.OnClick := @CopyPathBtnClick;
+  CopyPathBtn.Visible := False;
 end;
 
 procedure CurPageChanged(CurPageID: Integer);
 var
   ReportTxt: AnsiString;
-  Lines: TStringList;
+  FinalText: string;
 begin
   if CurPageID = wpFinished then
   begin
-    Lines := TStringList.Create;
-    try
-      ReportTxt := '';
-      if LoadStringFromFile(ExpandConstant('{app}\tools\deps-report.txt'), ReportTxt) then
-        Lines.Add(ReportTxt)
-      else
-        Lines.Add('Consulte {app}\tools\deps-report.txt');
-      Lines.Add('');
-      Lines.Add(ExpandConstant(CustomMessage('EdgeSteps')));
-      WizardForm.FinishedHeadingLabel.Caption := CustomMessage('FinishedHeading');
-      WizardForm.FinishedLabel.Caption := 'Dependencias:' + #13#10 + Lines.Text;
-      OpenEdgeBtn.Visible := True;
-      OpenEdgeBtn.Top := WizardForm.CancelButton.Top;
-      OpenEdgeBtn.Left := WizardForm.CancelButton.Left - OpenEdgeBtn.Width - ScaleX(10);
-    finally
-      Lines.Free;
-    end;
+    ReportTxt := '';
+    if LoadStringFromFile(ExpandConstant('{app}\tools\deps-report.txt'), ReportTxt) then
+      FinalText := 'Dependencias:' + #13#10 + String(ReportTxt)
+    else
+      FinalText := 'Consulte ' + ExpandConstant('{app}\tools\deps-report.txt');
+
+    FinalText := FinalText + #13#10 + #13#10 + GetEdgeStepsText;
+
+    WizardForm.FinishedHeadingLabel.Caption := CustomMessage('FinishedHeading');
+
+    { Expande a altura do label para caber todo o texto sem truncar }
+    WizardForm.FinishedLabel.AutoSize := True;
+    WizardForm.FinishedLabel.WordWrap := True;
+    WizardForm.FinishedLabel.Caption := FinalText;
+
+    { Posiciona os botoes lado a lado abaixo do texto }
+    OpenEdgeBtn.Left := WizardForm.FinishedLabel.Left;
+    OpenEdgeBtn.Top := WizardForm.FinishedLabel.Top + WizardForm.FinishedLabel.Height + ScaleY(12);
+    OpenEdgeBtn.Visible := True;
+
+    CopyPathBtn.Left := OpenEdgeBtn.Left + OpenEdgeBtn.Width + ScaleX(10);
+    CopyPathBtn.Top := OpenEdgeBtn.Top;
+    CopyPathBtn.Caption := 'Copiar caminho';
+    CopyPathBtn.Visible := True;
   end
   else
+  begin
     OpenEdgeBtn.Visible := False;
+    CopyPathBtn.Visible := False;
+  end;
 end;
+
