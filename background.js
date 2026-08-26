@@ -182,7 +182,7 @@ async function pollAdvancedTasks() {
 
   for (const item of advancedItems) {
     try {
-      const response = await fetch(`http://localhost:5000/api/status/${item.id}`);
+      const response = await fetch(Backend.apiUrl(backendStatus.port, `/api/status/${item.id}`));
       const data = await response.json();
 
       if (!response.ok) continue;
@@ -207,6 +207,8 @@ async function pollAdvancedTasks() {
       }
     } catch (e) {
       // Servidor local indisponível no momento; mantém o último estado conhecido.
+      // Re-descobre a porta ativa: o Motor Local pode ter subido em outra porta.
+      refreshBackendStatus();
       continue;
     }
   }
@@ -434,7 +436,7 @@ async function handleAnalyze({ url, referer }) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 15000);
   try {
-    const response = await fetch(`http://127.0.0.1:${backendStatus.port}/api/analyze`, {
+    const response = await fetch(Backend.apiUrl(backendStatus.port, "/api/analyze"), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ url, referer, cookies }),
@@ -464,7 +466,7 @@ async function handleStartDownload({ item, filename, selector, formatUrl, audio 
   if (backendStatus.online) {
     const cookies = await getCookiesForDomain(url);
     try {
-      const response = await fetch(`http://127.0.0.1:${backendStatus.port}/api/download`, {
+      const response = await fetch(Backend.apiUrl(backendStatus.port, "/api/download"), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

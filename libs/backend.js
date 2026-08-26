@@ -31,6 +31,10 @@ const Backend = {
   isCacheValid(entry, now = Date.now(), ttlMs = Backend.CACHE_TTL_MS) {
     return !!(entry && entry.result && typeof entry.ts === "number" && now - entry.ts < ttlMs);
   },
+
+  apiUrl(port, path = "") {
+    return `http://127.0.0.1:${port || Backend.CANDIDATE_PORTS[0]}${path}`;
+  },
 };
 
 if (typeof module !== "undefined" && module.exports) {

@@ -53,3 +53,8 @@ test("isCacheValid respeita TTL e dados mínimos", () => {
   assert.equal(Backend.isCacheValid(null, 1000), false);
   assert.equal(Backend.isCacheValid({ result: null, ts: 1000 }, 1000), false);
 });
+
+test("apiUrl monta a URL com a porta ativa", () => {
+  assert.equal(Backend.apiUrl(5001, "/api/ping"), "http://127.0.0.1:5001/api/ping");
+  assert.equal(Backend.apiUrl(null), "http://127.0.0.1:5000");
+});
