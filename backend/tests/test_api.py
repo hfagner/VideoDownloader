@@ -148,3 +148,12 @@ def test_final_name_audio_e_video():
     assert srv._final_name_for("C:/dl/Aula 1", False, {"ext": "webm"}, True) == "Aula 1.webm"
     assert srv._final_name_for("C:/dl/Titulo Extraido.mp4", False, {}, False) == "Titulo Extraido.mp4"
     assert srv._final_name_for("C:/dl/Titulo.webm", True, {}, False) == "Titulo.mp3"
+
+
+def test_record_final_size_grava_tamanho(monkeypatch):
+    q = srv.TaskQueue()
+    task_id = q.submit(lambda t: None, {"title": "X"})
+    monkeypatch.setattr(srv.os.path, "isfile", lambda p: True)
+    monkeypatch.setattr(srv.os.path, "getsize", lambda p: 12345)
+    srv._record_final_size(q, task_id, "Aula 1.mp4")
+    assert q.get(task_id)["size"] == 12345

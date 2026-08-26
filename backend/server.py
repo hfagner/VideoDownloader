@@ -98,6 +98,18 @@ def _final_name_for(prepared, audio, info, had_filename):
     return base + "." + ((info or {}).get("ext") or "mp4")
 
 
+def _record_final_size(queue, task_id, final_name):
+    """Grava o tamanho real do arquivo baixado (bytes) na task."""
+    if not final_name:
+        return
+    try:
+        path = os.path.join(download_dir(), final_name)
+        if os.path.isfile(path):
+            queue.set(task_id, size=os.path.getsize(path))
+    except OSError:
+        pass
+
+
 def apply_autostart(enabled):
     if sys.platform != "win32":
         return
@@ -439,8 +451,10 @@ def download_task(queue, task, *, url, referer=None, extra_headers=None,
 
         try:
             prepared = ydl.prepare_filename(info)
-            queue.set(task_id, filename=_final_name_for(
-                prepared, format_type == "audio", info, bool(filename)))
+            final_name = _final_name_for(
+                prepared, format_type == "audio", info, bool(filename))
+            queue.set(task_id, filename=final_name)
+            _record_final_size(queue, task_id, final_name)
         except Exception:
             pass
 
@@ -507,6 +521,7 @@ def _download_hls(queue, task, url, referer, format_id, filename):
         if proc.returncode == 0:
             queue.set(task_id, status="completed", progress="100%",
                       completed_at=time.time())
+            _record_final_size(queue, task_id, safe_name + ".mp4")
         else:
             raise RuntimeError(f"ffmpeg saiu com codigo {proc.returncode}")
     except Exception as e:
