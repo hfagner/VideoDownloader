@@ -64,6 +64,21 @@ def sanitize_filename(name, default="video"):
     return safe if safe.strip(" -") else default
 
 
+def _outtmpl_for(filename):
+    """Template de saida do yt-dlp: usa o nome escolhido pelo usuario quando
+    houver; caso contrario, o titulo extraido pelo proprio yt-dlp."""
+    if filename:
+        return os.path.join(download_dir(), filename)
+    return os.path.join(download_dir(), "%(title)s.%(ext)s")
+
+
+def _final_name_for(prepared_path, audio):
+    """Nome final no disco (pos-posprocessamento)."""
+    if audio:
+        return os.path.splitext(os.path.basename(prepared_path))[0] + ".mp3"
+    return os.path.basename(prepared_path)
+
+
 def apply_autostart(enabled):
     if sys.platform != "win32":
         return
@@ -330,7 +345,7 @@ def download_task(queue, task, *, url, referer=None, extra_headers=None,
         return
 
     ydl_opts = {
-        "outtmpl": os.path.join(download_dir(), "%(title)s.%(ext)s"),
+        "outtmpl": _outtmpl_for(filename),
         "noplaylist": True,
         "quiet": True,
         "no_warnings": True,
@@ -402,6 +417,12 @@ def download_task(queue, task, *, url, referer=None, extra_headers=None,
             if title:
                 queue.set(task_id, title=title)
             ydl.download([url])
+
+        try:
+            prepared = ydl.prepare_filename(info)
+            queue.set(task_id, filename=_final_name_for(prepared, format_type == "audio"))
+        except Exception:
+            pass
 
         queue.set(task_id, status="completed", progress="100%",
                   completed_at=time.time())
