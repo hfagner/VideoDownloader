@@ -1,197 +1,110 @@
 :root {
-  /* Light Mode - Fluent Design Inspired */
-  --bg-primary: #F3F3F3;
-  --bg-card: #FFFFFF;
-  --text-primary: #1A1A1A;
-  --text-secondary: #616161;
-  --accent: #0078D4;
-  --accent-hover: #106EBE;
-  --border: rgba(0, 0, 0, 0.08);
-  --shadow-card: 0 2px 4px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.06);
-  --radius-sm: 4px;
-  --radius-md: 8px;
-  --font-family: 'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif;
-  --transition: 200ms cubic-bezier(0.33, 0, 0.67, 1);
+  --bg: #0E1116;
+  --surface: #171B22;
+  --header: #141922;
+  --border: #232A35;
+  --border-strong: #3A4356;
+  --text: #E6E9EF;
+  --text-2: #C4CBD8;
+  --text-3: #9AA3B2;
+  --violet: #6E56F8;
+  --violet-2: #A79BFF;
+  --grad-btn: linear-gradient(135deg, #6E56F8, #8B5CF6);
+  --font: 'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif;
 }
 
-@media (prefers-color-scheme: dark) {
+@media (prefers-color-scheme: light) {
   :root {
-    --bg-primary: #1E1E1E;
-    --bg-card: #2D2D2D;
-    --text-primary: #E4E4E4;
-    --text-secondary: #A0A0A0;
-    --accent: #4CC2FF;
-    --accent-hover: #60CDFF;
-    --border: rgba(255, 255, 255, 0.08);
-    --shadow-card: 0 2px 4px rgba(0,0,0,0.24);
+    --bg: #FFFFFF;
+    --surface: #F7F8FA;
+    --header: #FAFBFC;
+    --border: #E5E7EB;
+    --border-strong: #D1D5DB;
+    --text: #111827;
+    --text-2: #374151;
+    --text-3: #6B7280;
   }
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
 body {
-  font-family: var(--font-family);
-  background-color: var(--bg-primary);
-  color: var(--text-primary);
-  display: flex;
-  justify-content: center;
-  padding: 40px 20px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 14px;
 }
 
-.container {
-  width: 100%;
-  max-width: 600px;
-  display: flex;
-  flex-direction: column;
-  gap: 24px;
-}
+.container { max-width: 640px; margin: 0 auto; padding: 28px 20px; }
 
-header {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  margin-bottom: 8px;
-}
-
-header img {
-  width: 48px;
-  height: 48px;
-}
-
-header h1 {
-  font-size: 24px;
-  font-weight: 600;
-}
+header { display: flex; align-items: center; gap: 12px; margin-bottom: 22px; }
+header img { width: 32px; height: 32px; }
+header h1 { font-size: 17px; font-weight: 600; }
 
 .card {
-  background-color: var(--bg-card);
+  background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  padding: 24px;
-  box-shadow: var(--shadow-card);
+  border-radius: 10px;
+  padding: 16px 18px;
+  margin-bottom: 14px;
 }
+.card h2 { font-size: 13px; font-weight: 700; margin-bottom: 12px; color: var(--text); }
 
-.card h2 {
-  font-size: 16px;
-  margin-bottom: 16px;
-  color: var(--text-primary);
-}
-
-.form-group {
-  margin-bottom: 16px;
-}
-
-.form-group:last-child {
-  margin-bottom: 0;
-}
-
-label {
-  display: block;
-  font-size: 14px;
-  font-weight: 600;
-  margin-bottom: 8px;
-}
-
-input[type="text"], select {
+.form-group { margin-bottom: 14px; }
+.form-group label { display: block; font-size: 12px; font-weight: 600; margin-bottom: 5px; }
+.form-group input[type="text"],
+.form-group select {
   width: 100%;
-  padding: 8px 12px;
-  font-size: 14px;
-  font-family: inherit;
-  color: var(--text-primary);
-  background-color: var(--bg-primary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  outline: none;
-  transition: border-color var(--transition);
+  background: var(--bg);
+  border: 1px solid var(--border-strong);
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+  padding: 7px 10px;
+  border-radius: 6px;
 }
+.hint { color: var(--text-3); font-size: 11px; margin-top: 4px; }
 
-input[type="text"]:focus, select:focus {
-  border-color: var(--accent);
-}
+.checkbox-group { display: flex; align-items: center; gap: 8px; }
+.checkbox-group input { accent-color: var(--violet); }
+.checkbox-group label { margin: 0; font-weight: 400; }
 
-.hint {
-  font-size: 12px;
-  color: var(--text-secondary);
-  margin-top: 4px;
-}
-
-.checkbox-group {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.checkbox-group label {
-  margin-bottom: 0;
-  font-weight: 400;
-}
-
-.blacklist-controls {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 12px;
-  margin-top: 12px;
-}
-
-.btn-primary {
-  background-color: var(--accent);
-  color: white;
-  border: none;
-  padding: 8px 16px;
-  border-radius: var(--radius-sm);
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background-color var(--transition);
-}
-
-.btn-primary:hover {
-  background-color: var(--accent-hover);
-}
-
-.blacklist-list {
-  list-style: none;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  max-height: 150px;
-  overflow-y: auto;
-}
-
+.blacklist-controls { display: flex; gap: 8px; margin-bottom: 10px; }
+.blacklist-controls input { flex: 1; }
+.blacklist-list { list-style: none; }
 .blacklist-item {
   display: flex;
   justify-content: space-between;
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--border);
-  font-size: 13px;
+  align-items: center;
+  padding: 7px 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin-bottom: 6px;
+  font-size: 12px;
 }
-
-.blacklist-item:last-child {
-  border-bottom: none;
-}
-
 .btn-remove {
   background: none;
   border: none;
-  color: #D13438;
+  color: var(--violet-2);
   cursor: pointer;
-  font-size: 12px;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
 }
 
-footer {
-  display: flex;
-  justify-content: flex-end;
-  align-items: center;
-  gap: 16px;
-  margin-top: 8px;
+.btn-primary {
+  background: var(--grad-btn);
+  border: none;
+  color: #fff;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 18px;
+  border-radius: 6px;
+  cursor: pointer;
 }
 
-.status-msg {
-  font-size: 14px;
-  color: var(--success);
-  opacity: 0;
-  transition: opacity var(--transition);
-}
-
-.status-msg.show {
-  opacity: 1;
-}
+footer { display: flex; align-items: center; justify-content: space-between; }
+.status-msg { color: var(--violet-2); font-size: 12px; opacity: 0; transition: opacity 200ms; }
+.status-msg.show { opacity: 1; }
