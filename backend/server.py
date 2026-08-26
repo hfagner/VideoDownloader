@@ -10,7 +10,7 @@ import uuid
 from pathlib import Path
 
 import requests as req
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 import yt_dlp
 from waitress import create_server
@@ -57,6 +57,16 @@ def save_config(cfg):
 
 def download_dir():
     return load_config()["download_dir"]
+
+
+def resource_path(*parts):
+    """Caminho de recursos: raiz do projeto em dev; sys._MEIPASS congelado."""
+    if getattr(sys, "frozen", False):
+        return Path(sys._MEIPASS).joinpath(*parts)
+    return Path(__file__).resolve().parent.parent.joinpath(*parts)
+
+
+WEB_DIR = resource_path("backend", "web")
 
 
 def sanitize_filename(name, default="video"):
@@ -512,6 +522,19 @@ def _download_hls(queue, task, url, referer, format_id, filename):
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
+
+@app.route("/")
+def dashboard():
+    return send_from_directory(str(WEB_DIR), "index.html")
+
+
+@app.route("/<path:filename>")
+def web_assets(filename):
+    target = WEB_DIR / filename
+    if target.is_file() and WEB_DIR in target.resolve().parents:
+        return send_from_directory(str(WEB_DIR), filename)
+    return jsonify({"error": "Nao encontrado"}), 404
+
 
 @app.route('/api/ping')
 def ping():
