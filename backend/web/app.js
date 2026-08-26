@@ -3,6 +3,12 @@ const POLL_MS = 1500;
 
 const $ = (id) => document.getElementById(id);
 
+function escapeHtml(str) {
+  return String(str || "")
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
 function fmtBytes(bytes) {
   if (!bytes) return "0 MB";
   const units = ["B", "KB", "MB", "GB"];
@@ -46,18 +52,22 @@ function renderQueue(tasks) {
 
   for (const t of active) {
     const pct = Math.max(0, Math.min(100, parseInt(t.progress, 10) || 0));
+    const name = escapeHtml(t.title || t.filename || t.url || "...");
+    const titleAttr = escapeHtml(t.title || t.filename || t.url || "");
+    const speedHtml = t.speed ? `<span>·</span><span>${escapeHtml(t.speed)}</span>` : "";
+    const etaHtml = fmtEta(t.eta) ? `<span>·</span><span>restam ${escapeHtml(fmtEta(t.eta))}</span>` : "";
     const el = document.createElement("div");
     el.className = "task";
     el.innerHTML = `
       <div class="task-head">
-        <span class="task-name" title="${t.title || t.filename || t.url || ""}">${t.title || t.filename || t.url || "..."}</span>
+        <span class="task-name" title="${titleAttr}">${name}</span>
         <span class="task-pct">${pct}%</span>
       </div>
       <div class="task-meta">
-        <span>${t.format_label || ""}</span>
-        ${t.speed ? `<span>·</span><span>${t.speed}</span>` : ""}
-        ${fmtEta(t.eta) ? `<span>·</span><span>restam ${fmtEta(t.eta)}</span>` : ""}
-        <span class="task-cancel" data-id="${t.id}">✕ cancelar</span>
+        <span>${escapeHtml(t.format_label || "")}</span>
+        ${speedHtml}
+        ${etaHtml}
+        <span class="task-cancel" data-id="${escapeHtml(t.id)}">✕ cancelar</span>
       </div>
       <div class="bar"><div class="bar-fill" style="width:${pct}%"></div></div>
     `;
@@ -81,14 +91,26 @@ function renderHistory(history) {
       doneToday += 1;
       bytesToday += t.size || 0;
     }
+    const mark = t.status === "completed" ? "✓" : t.status === "error" ? "❌" : t.status === "cancelled" ? "✕" : "⚠";
+    const name = escapeHtml(t.title || t.filename || t.url || "...");
+    const titleAttr = escapeHtml(t.title || t.filename || t.url || "");
+    const metaParts = [];
+    if (t.format_label) metaParts.push(escapeHtml(t.format_label));
+    if (t.size) metaParts.push(fmtBytes(t.size));
+    const metaHtml = metaParts.join(" · ");
+    const timeHtml = t.completed_at
+      ? new Date(t.completed_at * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+      : "";
+    const openHtml = t.status === "completed" && t.filename
+      ? `<span class="history-open" data-path="${escapeHtml(t.filename)}">📂</span>` : "";
     const el = document.createElement("div");
     el.className = "history-row";
     el.innerHTML = `
-      <span class="history-check">${t.status === "completed" ? "✓" : t.status === "error" ? "❌" : t.status === "cancelled" ? "✕" : "⚠"}</span>
-      <span class="history-name" title="${t.title || t.filename || t.url || ""}">${t.title || t.filename || t.url || "..."}</span>
-      <span class="history-meta">${t.format_label ? t.format_label + " · " : ""}${t.size ? fmtBytes(t.size) : ""}</span>
-      <span class="history-time">${t.completed_at ? new Date(t.completed_at * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}</span>
-      ${t.status === "completed" && t.filename ? `<span class="history-open" data-path="${t.filename}">📂</span>` : ""}
+      <span class="history-check">${mark}</span>
+      <span class="history-name" title="${titleAttr}">${name}</span>
+      <span class="history-meta">${metaHtml}</span>
+      <span class="history-time">${timeHtml}</span>
+      ${openHtml}
     `;
     list.appendChild(el);
   }
