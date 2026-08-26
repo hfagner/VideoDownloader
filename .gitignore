@@ -13,5 +13,8 @@ node_modules/
 # Tooling do brainstorming
 .superpowers/
 
+# Claude Settings
+.claude/
+
 # Artefatos de build final (opcional manter fora do git)
 dist/
