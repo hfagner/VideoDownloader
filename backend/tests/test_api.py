@@ -147,3 +147,4 @@ def test_final_name_audio_e_video():
     assert srv._final_name_for("C:/dl/Aula 1", False, {"requested_formats": [{}, {}]}, True) == "Aula 1.mp4"
     assert srv._final_name_for("C:/dl/Aula 1", False, {"ext": "webm"}, True) == "Aula 1.webm"
     assert srv._final_name_for("C:/dl/Titulo Extraido.mp4", False, {}, False) == "Titulo Extraido.mp4"
+    assert srv._final_name_for("C:/dl/Titulo.webm", True, {}, False) == "Titulo.mp3"

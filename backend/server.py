@@ -74,14 +74,15 @@ def _outtmpl_for(filename):
 
 
 def _final_name_for(prepared, audio, info, had_filename):
-    """Nome final no disco. Com nome do usuario: audio→.mp3; merge→.mp4;
-    formato unico→ext do formato. Sem nome do usuario: o prepare_filename do
-    template %(ext)s ja devolve o nome correto."""
+    """Nome final no disco. Audio e sempre base+.mp3 (pos-processador).
+    Com nome do usuario: merge→.mp4; formato unico→ext do formato.
+    Sem nome do usuario: o prepare_filename do template %(ext)s devolve o
+    nome correto."""
+    if audio:
+        return os.path.splitext(os.path.basename(prepared))[0] + ".mp3"
     if not had_filename:
         return os.path.basename(prepared)
     base = os.path.splitext(os.path.basename(prepared))[0]
-    if audio:
-        return base + ".mp3"
     if info and info.get("requested_formats"):
         return base + ".mp4"
     return base + "." + ((info or {}).get("ext") or "mp4")
