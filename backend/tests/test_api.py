@@ -1,4 +1,5 @@
 import sys
+import threading
 from pathlib import Path
 
 import pytest
@@ -89,3 +90,47 @@ def test_shutdown_agenda(client, monkeypatch):
     monkeypatch.setattr(srv, "shutdown_app", lambda: called.setdefault("ok", True))
     r = client.post("/api/shutdown")
     assert r.status_code == 200 and r.get_json() == {"ok": True}
+
+
+def test_download_sem_url_400(client):
+    r = client.post("/api/download", json={})
+    assert r.status_code == 400
+    assert "error" in r.get_json()
+
+
+def test_download_audio_mapeia_format_type(client, monkeypatch):
+    calls = {}
+
+    def fake_task(queue, task, **kwargs):
+        calls.update(kwargs)
+        queue.set(task["id"], status="completed")
+
+    monkeypatch.setattr(srv, "download_task", fake_task)
+    r = client.post("/api/download", json={"url": "https://x/v.mp4", "audio": True,
+                                           "filename": "Aula/1.mp3"})
+    assert r.status_code == 202
+    assert r.get_json()["task_id"]
+    assert calls["format_type"] == "audio"
+
+
+def test_download_sanitiza_filename(client, monkeypatch):
+    calls = {}
+
+    def fake_task(queue, task, **kwargs):
+        calls.update(kwargs)
+        queue.set(task["id"], status="completed")
+
+    monkeypatch.setattr(srv, "download_task", fake_task)
+    client.post("/api/download", json={"url": "https://x/v.mp4", "filename": "A/B?C*"})
+    assert calls["filename"] == "A-B-C-"
+
+
+def test_status_le_da_fila(client):
+    def fn(task):
+        srv.QUEUE.set(task["id"], progress="50%")
+
+    task_id = srv.QUEUE.submit(fn, {"title": "X"})
+    r = client.get(f"/api/status/{task_id}")
+    assert r.status_code == 200
+    assert r.get_json()["title"] == "X"
+    assert client.get("/api/status/nao-existe").status_code == 404

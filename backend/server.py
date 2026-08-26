@@ -60,8 +60,8 @@ def download_dir():
 
 
 def sanitize_filename(name, default="video"):
-    safe = re.sub(r"[^\w\s.-]", "-", name or "").strip(" -")[:120]
-    return safe or default
+    safe = re.sub(r"[^\w\s.-]", "-", name or "").strip()[:120]
+    return safe if safe.strip(" -") else default
 
 
 def apply_autostart(enabled):
@@ -217,8 +217,6 @@ CORS(app)
 HOST = '127.0.0.1'
 PORT = 5000
 
-downloads_status = {}
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -265,66 +263,6 @@ def extract_hotmart_m3u8(embed_url, referer=None):
         return None
 
 
-def download_via_ffmpeg(task_id, m3u8_url, output_name, referer=None):
-    """
-    Usa ffmpeg diretamente para baixar e decriptar um stream HLS AES-128.
-    Mais robusto que o yt-dlp para streams diretos da Hotmart.
-    """
-    import subprocess
-
-    safe_name = re.sub(r'[^\w\s-]', '', output_name)[:60] or 'hotmart_video'
-    output_path = os.path.join(DOWNLOAD_DIR, safe_name + '.mp4')
-
-    cmd = [
-        'ffmpeg', '-y',
-        '-protocol_whitelist', 'file,http,https,tcp,tls,crypto',
-        '-allowed_extensions', 'ALL',
-    ]
-
-    if referer:
-        cmd += ['-headers', f'Referer: {referer}\r\nOrigin: {"/".join(referer.split("/")[:3])}\r\n']
-
-    cmd += [
-        '-i', m3u8_url,
-        '-c', 'copy',
-        '-bsf:a', 'aac_adtstoasc',
-        output_path
-    ]
-
-    try:
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        downloads_status[task_id]['ffmpeg_pid'] = proc.pid
-
-        # Monitorar progresso via stderr do ffmpeg
-        duration_re = re.compile(r'Duration:\s*(\d+):(\d+):(\d+)')
-        time_re = re.compile(r'time=(\d+):(\d+):(\d+)')
-        total_secs = None
-
-        for line in proc.stderr:
-            d = duration_re.search(line)
-            if d and total_secs is None:
-                h, m, s = int(d.group(1)), int(d.group(2)), int(d.group(3))
-                total_secs = h * 3600 + m * 60 + s
-
-            t = time_re.search(line)
-            if t and total_secs:
-                h, m, s = int(t.group(1)), int(t.group(2)), int(t.group(3))
-                elapsed = h * 3600 + m * 60 + s
-                pct = min(100, int(elapsed * 100 / total_secs))
-                downloads_status[task_id]['progress'] = f'{pct}%'
-
-        proc.wait()
-        if proc.returncode == 0:
-            downloads_status[task_id]['status'] = 'completed'
-            downloads_status[task_id]['progress'] = '100%'
-            print(f"[ffmpeg] Download concluido: {output_path}")
-        else:
-            stderr = proc.stderr.read() if proc.stderr else ''
-            raise RuntimeError(f"ffmpeg saiu com codigo {proc.returncode}")
-    except Exception as e:
-        downloads_status[task_id]['status'] = 'error'
-        downloads_status[task_id]['error'] = str(e)
-
 def configure_ytdlp_youtube(ydl_opts):
     """
     Torna a extracao do YouTube robusta com o yt-dlp >= 2026.08.19:
@@ -368,142 +306,176 @@ def configure_instagram(ydl_opts):
     ydl_opts['noplaylist'] = True
 
 
-def download_video_task(task_id, url, referer=None, extra_headers=None, cookies_list=None, format_type='video'):
-    """
-    Orquestra o download. Detecta automaticamente o tipo de URL:
-    - m3u8 direto (vod-akm.play.hotmart.com) → ffmpeg direto
-    - cf-embed URL → erro com instrucao clara
-    - youtube/vimeo → yt-dlp
-    """
-    downloads_status[task_id] = {
-        'status': 'downloading',
-        'progress': '0%',
-        'url': url,
-        'title': '',
-        'error': None
-    }
+def download_task(queue, task, *, url, referer=None, extra_headers=None,
+                  cookies_list=None, format_type="video", selector=None,
+                  format_id=None, filename=None):
+    """Orquestra um download escrevendo o progresso na task da fila."""
+    task_id = task["id"]
+    queue.set(task_id, status="downloading", progress="0%", url=url,
+              filename=filename, error=None)
 
-    is_hotmart_embed = 'cf-embed.play.hotmart.com/embed/' in url
-    is_direct_hls = 'vod-akm.play.hotmart.com' in url or (('.m3u8' in url) and not is_hotmart_embed)
+    is_hotmart_embed = "cf-embed.play.hotmart.com/embed/" in url
+    is_direct_hls = ("vod-akm.play.hotmart.com" in url
+                     or (".m3u8" in url and not is_hotmart_embed))
 
-    # Caso 1: Embed iframe do Hotmart — nao temos como baixar sem session do browser
     if is_hotmart_embed:
-        downloads_status[task_id]['status'] = 'error'
-        downloads_status[task_id]['error'] = (
-            'Nao e possivel baixar o embed diretamente. '
-            'Pressione PLAY no video na pagina, aguarde carregar, '
-            'depois reabra o popup e clique em "Baixar via Motor Local". '
-            'O stream com token (.m3u8) aparecera na lista.'
-        )
+        queue.set(task_id, status="error", error=(
+            "Nao e possivel baixar o embed diretamente. Pressione PLAY no video, "
+            "aguarde carregar e tente novamente."))
         return
 
-    # Caso 2: URL m3u8 direta (interceptada pelo webRequest) — ffmpeg direto
     if is_direct_hls:
-        downloads_status[task_id]['progress'] = 'Baixando stream...'
-        download_via_ffmpeg(task_id, url, 'hotmart_video', referer=referer or 'https://hotmart.com/')
+        queue.set(task_id, progress="Baixando stream...", format_label="HLS")
+        _download_hls(queue, task, url, referer, format_id, filename)
         return
 
-    # Caso 3: YouTube, Vimeo, etc. — yt-dlp normal
     ydl_opts = {
-        'outtmpl': os.path.join(DOWNLOAD_DIR, '%(title)s.%(ext)s'),
-        'noplaylist': True,
-        'quiet': True,
-        'no_warnings': True,
-        'concurrent_fragment_downloads': 5,
+        "outtmpl": os.path.join(download_dir(), "%(title)s.%(ext)s"),
+        "noplaylist": True,
+        "quiet": True,
+        "no_warnings": True,
+        "concurrent_fragment_downloads": 5,
     }
-    
-    if format_type == 'audio':
-        ydl_opts['format'] = 'bestaudio*/best'
-        ydl_opts['postprocessors'] = [{
-            'key': 'FFmpegExtractAudio',
-            'preferredcodec': 'mp3',
-            'preferredquality': '192',
+    format_label = "Audio (MP3)" if format_type == "audio" else (
+        f"{format_id}" if format_id else "Melhor")
+    queue.set(task_id, format_label=format_label)
+
+    if format_type == "audio":
+        ydl_opts["format"] = "bestaudio/best"
+        ydl_opts["postprocessors"] = [{
+            "key": "FFmpegExtractAudio",
+            "preferredcodec": "mp3",
+            "preferredquality": "192",
         }]
+    elif selector:
+        ydl_opts["format"] = selector
+        ydl_opts["merge_output_format"] = "mp4"
     else:
-        # Prefere video MP4 (H.264) + audio M4A (AAC), ambos compativeis com
-        # o container MP4, evitando que a melhor faixa de audio seja Opus/webm
-        # e a mesclagem em MP4 falhe ("Stream #1:0 -> #0:1 (copy)").
-        # O fallback cobre videos que so oferecem streams combinados ou webm
-        # (ex: videos com restricao) e impede "Requested format is not available".
-        ydl_opts['format'] = 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best'
-        ydl_opts['merge_output_format'] = 'mp4'
+        ydl_opts["format"] = ("bestvideo[ext=mp4]+bestaudio[ext=m4a]/"
+                              "bestvideo+bestaudio/best")
+        ydl_opts["merge_output_format"] = "mp4"
 
     http_headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Accept-Language': 'pt-BR,pt;q=0.9',
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Accept-Language": "pt-BR,pt;q=0.9",
     }
     if referer:
-        http_headers['Referer'] = referer
+        http_headers["Referer"] = referer
     if extra_headers:
         http_headers.update(extra_headers)
-    ydl_opts['http_headers'] = http_headers
+    ydl_opts["http_headers"] = http_headers
 
-    # Robustez do YouTube no yt-dlp novo: habilita JS runtime (deno/node) e
-    # remove os clientes 'tv' que geram "The page needs to be reloaded.".
     configure_ytdlp_youtube(ydl_opts)
 
-    # Instagram: exige login (cookies) e impersonação; sem curl-cffi o yt-dlp
-    # não consegue se passar por navegador e é bloqueado pelo Instagram.
-    is_instagram = is_instagram_url(url)
-    if is_instagram:
+    if is_instagram_url(url):
         configure_instagram(ydl_opts)
         try:
             import curl_cffi  # noqa: F401
         except ImportError:
-            downloads_status[task_id]['status'] = 'error'
-            downloads_status[task_id]['error'] = (
-                'O download de Reels/Stories do Instagram requer o pacote "curl-cffi" '
-                '(impersonação de navegador). Instale com:  pip install curl-cffi '
-                'e reinicie o Motor Local.'
-            )
+            queue.set(task_id, status="error", error=(
+                "O download de Reels/Stories do Instagram requer o pacote "
+                '"curl-cffi". Instale com: pip install curl-cffi e reinicie o Motor Local.'))
             return
 
-    # Se a extensão enviou cookies (agora usando a permissão "cookies" do manifest)
-    cookie_file_path = None
-    if cookies_list and isinstance(cookies_list, list) and len(cookies_list) > 0:
-        import tempfile
-        cookie_file_path = os.path.join(tempfile.gettempdir(), f"cookies_{task_id}.txt")
-        try:
-            with open(cookie_file_path, 'w', encoding='utf-8') as f:
-                f.write("# Netscape HTTP Cookie File\n")
-                f.write("# This file was generated by EdgeVideoDownloader\n\n")
-                for c in cookies_list:
-                    domain = c.get('domain', '')
-                    include_subdomains = "TRUE" if domain.startswith('.') else "FALSE"
-                    path = c.get('path', '/')
-                    secure = "TRUE" if c.get('secure') else "FALSE"
-                    expiration = str(int(c.get('expirationDate', 0))) if not c.get('session', False) else "0"
-                    name = c.get('name', '')
-                    value = c.get('value', '')
-                    f.write(f"{domain}\t{include_subdomains}\t{path}\t{secure}\t{expiration}\t{name}\t{value}\n")
-            ydl_opts['cookiefile'] = cookie_file_path
-        except Exception as e:
-            print(f"Erro ao salvar cookies: {e}")
+    cookie_file_path = analyzer.write_cookie_file(cookies_list, task_id)
+    if cookie_file_path:
+        ydl_opts["cookiefile"] = cookie_file_path
 
     try:
         def my_hook(d):
-            if d['status'] == 'downloading':
-                percent = d.get('_percent_str', '0%').replace('\x1b[0;94m', '').replace('\x1b[0m', '').strip()
-                downloads_status[task_id]['progress'] = percent
-            elif d['status'] == 'finished':
-                downloads_status[task_id]['progress'] = '100%'
-                downloads_status[task_id]['status'] = 'merging'
+            if d["status"] == "downloading":
+                percent = (d.get("_percent_str", "0%")
+                           .replace("\x1b[0;94m", "").replace("\x1b[0m", "").strip())
+                speed = d.get("speed")
+                eta = d.get("eta")
+                queue.set(task_id, progress=percent,
+                          speed=f"{speed / 1024 / 1024:.1f} MB/s" if speed else None,
+                          eta=eta)
+            elif d["status"] == "finished":
+                queue.set(task_id, progress="100%", status="merging")
 
-        ydl_opts['progress_hooks'] = [my_hook]
+        ydl_opts["progress_hooks"] = [my_hook]
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            title = (info or {}).get("title")
+            if title:
+                queue.set(task_id, title=title)
             ydl.download([url])
 
-        downloads_status[task_id]['status'] = 'completed'
+        queue.set(task_id, status="completed", progress="100%",
+                  completed_at=time.time())
     except Exception as e:
-        downloads_status[task_id]['status'] = 'error'
-        downloads_status[task_id]['error'] = str(e)
+        queue.set(task_id, status="error", error=str(e),
+                  completed_at=time.time())
     finally:
         if cookie_file_path and os.path.exists(cookie_file_path):
             try:
                 os.remove(cookie_file_path)
-            except:
+            except OSError:
                 pass
+        try:
+            QUEUE.persist(_history_path())
+        except Exception:
+            pass
+
+
+def _download_hls(queue, task, url, referer, format_id, filename):
+    """Download de stream HLS direto via ffmpeg (variante format_id opcional)."""
+    task_id = task["id"]
+    target_url = format_id or url
+    safe_name = sanitize_filename(filename or "hotmart_video", "hotmart_video")
+    output_path = os.path.join(download_dir(), safe_name + ".mp4")
+    queue.set(task_id, filename=safe_name + ".mp4")
+
+    cmd = ["ffmpeg", "-y",
+           "-protocol_whitelist", "file,http,https,tcp,tls,crypto",
+           "-allowed_extensions", "ALL"]
+    if referer:
+        cmd += ["-headers",
+                f"Referer: {referer}\r\nOrigin: {'/'.join(referer.split('/')[:3])}\r\n"]
+    cmd += ["-i", target_url, "-c", "copy", "-bsf:a", "aac_adtstoasc", output_path]
+
+    try:
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE, text=True)
+        queue.set(task_id, ffmpeg_pid=proc.pid)
+
+        duration_re = re.compile(r"Duration:\s*(\d+):(\d+):(\d+)")
+        time_re = re.compile(r"time=(\d+):(\d+):(\d+)")
+        speed_re = re.compile(r"speed=\s*([\d.]+)x")
+        total_secs = None
+
+        for line in proc.stderr:
+            d = duration_re.search(line)
+            if d and total_secs is None:
+                h, m, s = int(d.group(1)), int(d.group(2)), int(d.group(3))
+                total_secs = h * 3600 + m * 60 + s
+            t = time_re.search(line)
+            if t and total_secs:
+                h, m, s = int(t.group(1)), int(t.group(2)), int(t.group(3))
+                elapsed = h * 3600 + m * 60 + s
+                pct = min(100, int(elapsed * 100 / total_secs))
+                queue.set(task_id, progress=f"{pct}%",
+                          eta=max(0, total_secs - elapsed))
+            sp = speed_re.search(line)
+            if sp:
+                queue.set(task_id, speed=f"{sp.group(1)}x")
+
+        proc.wait()
+        if proc.returncode == 0:
+            queue.set(task_id, status="completed", progress="100%",
+                      completed_at=time.time())
+        else:
+            raise RuntimeError(f"ffmpeg saiu com codigo {proc.returncode}")
+    except Exception as e:
+        queue.set(task_id, status="error", error=str(e),
+                  completed_at=time.time())
+    finally:
+        try:
+            QUEUE.persist(_history_path())
+        except Exception:
+            pass
 
 
 # ---------------------------------------------------------------------------
@@ -532,34 +504,52 @@ def cancel_task(task_id):
     return jsonify({"ok": QUEUE.cancel(task_id)})
 
 
-@app.route('/api/download', methods=['POST'])
+@app.route("/api/download", methods=["POST"])
 def start_download():
-    data = request.json
-    url = data.get('url')
-    referer = data.get('referer')
-    extra_headers = data.get('headers')
-    cookies = data.get('cookies')
-    format_type = data.get('format_type', 'video')
-
+    data = request.json or {}
+    url = data.get("url")
     if not url:
-        return jsonify({'error': 'URL nao fornecida'}), 400
+        return jsonify({"error": "URL nao fornecida"}), 400
 
-    task_id = str(uuid.uuid4())
-    thread = threading.Thread(target=download_video_task, args=(task_id, url, referer, extra_headers, cookies, format_type))
-    thread.start()
+    # Garante a pasta de destino antes do primeiro download (ruling Task 2).
+    try:
+        os.makedirs(download_dir(), exist_ok=True)
+    except OSError:
+        pass
 
+    format_type = "audio" if data.get("audio") else data.get("format_type", "video")
+    filename = sanitize_filename(data.get("filename") or "", "video")
+    task = {
+        "url": url,
+        "filename": filename,
+        "format_label": data.get("format_label") or "",
+    }
+    task_id = QUEUE.submit(
+        lambda t: download_task(
+            QUEUE, t,
+            url=url,
+            referer=data.get("referer"),
+            extra_headers=data.get("headers"),
+            cookies_list=data.get("cookies"),
+            format_type=format_type,
+            selector=data.get("selector"),
+            format_id=data.get("format_id"),
+            filename=filename,
+        ),
+        task,
+    )
     return jsonify({
-        'message': 'Download iniciado',
-        'task_id': task_id,
-        'output_dir': DOWNLOAD_DIR
+        "message": "Download iniciado",
+        "task_id": task_id,
+        "output_dir": download_dir(),
     }), 202
 
 
-@app.route('/api/status/<task_id>', methods=['GET'])
+@app.route("/api/status/<task_id>", methods=["GET"])
 def get_status(task_id):
-    status = downloads_status.get(task_id)
+    status = QUEUE.get(task_id)
     if not status:
-        return jsonify({'error': 'Task ID nao encontrado'}), 404
+        return jsonify({"error": "Task ID nao encontrado"}), 404
     return jsonify(status)
 
 
@@ -691,11 +681,11 @@ def _is_running():
 
 def _kill_ffmpeg_children():
     """Encerra processos ffmpeg em andamento (se houver download ativo)."""
-    for task in list(downloads_status.values()):
-        pid = task.get('ffmpeg_pid')
+    for task in QUEUE.snapshot():
+        pid = task.get("ffmpeg_pid")
         if pid:
             try:
-                subprocess.run(['taskkill', '/PID', str(pid), '/F', '/T'],
+                subprocess.run(["taskkill", "/PID", str(pid), "/F", "/T"],
                                capture_output=True, timeout=10)
             except Exception:
                 pass
