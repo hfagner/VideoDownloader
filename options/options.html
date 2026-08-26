@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>Configurações - Edge Video Downloader</title>
+  <link rel="stylesheet" href="options.css">
+  <script src="../libs/storage.js"></script>
+  <script src="options.js" defer></script>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <img src="../icons/icon-active-48.png" alt="Logo">
+      <h1>Configurações do Edge Video Downloader</h1>
+    </header>
+
+    <main>
+      <section class="card">
+        <h2>📥 Downloads</h2>
+        
+        <div class="form-group">
+          <label for="downloadFolder">Sub-pasta de Downloads</label>
+          <input type="text" id="downloadFolder" placeholder="Ex: Videos/EdgeDownloader" />
+          <p class="hint">Caminho relativo à sua pasta padrão de downloads do Windows/Edge.</p>
+        </div>
+
+        <div class="form-group">
+          <label for="autoDownloadQuality">Comportamento de Qualidade</label>
+          <select id="autoDownloadQuality">
+            <option value="ask">Sempre perguntar (Mostrar "Salvar Como")</option>
+            <option value="highest">Download direto (salvar silenciosamente)</option>
+          </select>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>⚙️ Geral</h2>
+        
+        <div class="form-group checkbox-group">
+          <input type="checkbox" id="showNotifications" />
+          <label for="showNotifications">Mostrar notificações quando o download concluir</label>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>🚫 Blacklist de Domínios</h2>
+        <p class="hint">A extensão não tentará detectar mídias nestes sites.</p>
+        
+        <div class="blacklist-controls">
+          <input type="text" id="newDomain" placeholder="exemplo.com" />
+          <button id="btnAddDomain" class="btn-primary">Adicionar</button>
+        </div>
+        
+        <ul id="blacklist-list" class="blacklist-list">
+          <!-- Domínios serão inseridos aqui -->
+        </ul>
+      </section>
+    </main>
+
+    <footer>
+      <span id="save-status" class="status-msg"></span>
+      <button id="btn-save" class="btn-primary">Salvar Configurações</button>
+    </footer>
+  </div>
+</body>
+</html>

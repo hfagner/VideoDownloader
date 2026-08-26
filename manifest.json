@@ -1,0 +1,50 @@
+{
+  "manifest_version": 3,
+  "name": "Edge Video Downloader",
+  "version": "1.0.0",
+  "description": "Detecta e baixa vídeos e áudios de qualquer página da web com facilidade.",
+  "permissions": [
+    "activeTab",
+    "downloads",
+    "storage",
+    "webRequest",
+    "sidePanel",
+    "contextMenus",
+    "alarms",
+    "notifications",
+    "cookies"
+  ],
+  "host_permissions": [
+    "*://*/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_title": "Edge Video Downloader",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": ["*://*/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "side_panel": {
+    "default_path": "popup/popup.html"
+  },
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "options_page": "options/options.html"
+}

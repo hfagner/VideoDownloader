@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.pyc
+backend/.venv/
+backend/data/
+deploy/.pybuild-venv/
+deploy/dist/.work/
+deploy/dist/.spec/
+
+# Node
+node_modules/
+
+# Tooling do brainstorming
+.superpowers/
+
+# Artefatos de build final (opcional manter fora do git)
+dist/

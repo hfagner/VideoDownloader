@@ -1,0 +1,5 @@
+# Dependencias do backend "Motor Local" (porta 5000)
+flask==3.0.0
+flask-cors==4.0.0
+yt-dlp>=2026.08.19
+requests>=2.31.0
