@@ -3,11 +3,12 @@
 Material de *deploy* para **Windows (Edge + Google Chrome)**. Instala:
 
 1. A **extensão MV3** (`manifest.json`, `background.js`, `libs`, `popup`, `options`, `icons`).
-2. O **backend "Motor Local"** (servidor WSGI de produção **waitress**) em `http://127.0.0.1:5000`, empacotado como **EXE autônomo** (`--windowed`) — o usuário final **não precisa instalar Python** e não vê mais terminal: uma **janela de status (tkinter)** mostra que o serviço está rodando, informa a pasta de downloads e permite **parar** o Motor Local.
-3. O **FFmpeg** (usado para streams HLS / Hotmart).
-4. **Atalhos** de navegador que carregam a extensão com `--load-extension`.
-5. **Auto-início** do backend no login (abre a janela de status discretamente).
-6. **Desinstalador** registrado no Windows (`Adicionar/Remover programas`).
+2. O **backend "Motor Local"** (servidor WSGI de produção **waitress**) em `http://127.0.0.1:5000`, empacotado como **EXE autônomo** — o usuário final **não precisa instalar Python**: ao abrir, o app sobe o servidor, abre o **dashboard web** no navegador e fica como **ícone na bandeja** (fechar a aba não interrompe downloads).
+3. **Dependências verificadas/instaladas automaticamente**: **FFmpeg** (streams HLS/Hotmart) e **Deno** (robustez do YouTube, em `%USERPROFILE%\.deno\bin` — local que o backend já procura). A tela final do Setup mostra o **relatório de dependências** (✔/⚠) gerado em `tools\deps-report.json`.
+4. **Atalhos** no Desktop e Menu Iniciar: **Motor Local** (abre o app), **Dashboard** (abre o painel web) e navegadores com a extensão via `--load-extension`.
+5. **Tela final do Setup com instruções** passo a passo para ativar a extensão no Edge (`edge://extensions` → Modo de desenvolvedor → Carregar descompactada), com botão que abre a página direto.
+6. **Auto-início** do backend no login (sobe discretamente na bandeja).
+7. **Desinstalador** registrado no Windows (`Adicionar/Remover programas`). O Deno instalado é preservado (ferramenta de usuário compartilhada).
 
 ---
 
@@ -33,6 +34,7 @@ Parâmetros opcionais:
 | `-SourceRoot <pasta>` | Pasta com a extensão e `backend\` (padrão: raiz do projeto) |
 | `-NoBackend` | Não configura o backend nem cria venv |
 | `-NoFfmpeg` | Não baixa o FFmpeg |
+| `-NoDeno` | Não baixa o Deno |
 | `-NoShortcuts` | Não cria atalhos |
 | `-NoAutostart` | Não registra auto-início |
 | `-NoLaunch` | Não abre o navegador ao final |
@@ -50,6 +52,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\deploy\build-setup-exe.ps1
 ```
 
 Gera `dist\EdgeVideoDownloaderSetup.exe` (instalador + desinstalador nativos, telas em PT-BR/EN) **já com o backend EXE embutido**. O próprio `build-setup-exe.ps1` compila o EXE do backend antes do Inno (use `-SkipBackend` para reutilizar o já gerado).
+
+O Setup é **de um clique**: verifica e instala FFmpeg + Deno, cria os atalhos (Motor Local, Dashboard, navegadores) e, na **tela final**, mostra o relatório de dependências e o passo a passo para ativar a extensão no Edge (com botão "Abrir edge://extensions").
 
 ### Compilar apenas o EXE do backend
 
@@ -105,8 +109,10 @@ Se os atalhos/`--load-extension` falharem na sua versão do navegador:
 ├── venv\               # ambiente virtual Python (somente no fallback do venv)
 ├── ffmpeg\             # binários FFmpeg
 ├── launchers\          # start_backend.cmd / launch_edge.cmd / launch_chrome.cmd
-├── tools\              # desinstalador (cópia)
+├── tools\              # desinstalador (cópia) + deps-report.json/.txt (relatório da tela final)
 └── logs\               # logs do pip
 ```
+
+> O Deno (quando baixado pelo instalador) fica em `%USERPROFILE%\.deno\bin\deno.exe`.
 
 > O backend salva os downloads em `%USERPROFILE%\Downloads\EdgeVideoDownloader`.
