@@ -1062,7 +1062,7 @@ def analyze_media():
     url = data.get("url")
     try:
         result = analyzer.analyze_url(
-            url,
+            url=url,
             referer=data.get("referer"),
             cookies_list=data.get("cookies"),
             default_quality=load_config()["default_quality"],
