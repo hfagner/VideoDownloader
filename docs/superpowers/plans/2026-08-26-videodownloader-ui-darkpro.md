@@ -1227,6 +1227,33 @@ Expected: FAIL — `/api/download` atual não aceita `audio`/`filename` como esp
 
 - [ ] **Step 3: Reescrever a função de download em `backend/server.py`**
 
+Antes disso, adicionar junto a `sanitize_filename` os helpers de nome final (evolução dos fix rounds do Task 5 — definições finais):
+
+```python
+def _outtmpl_for(filename):
+    """Template de saida do yt-dlp: usa o nome escolhido pelo usuario SEM
+    extensao (o yt-dlp adiciona a correta no download/pos-processamento);
+    caso contrario, o titulo extraido pelo proprio yt-dlp."""
+    if filename:
+        return os.path.join(download_dir(), os.path.splitext(filename)[0])
+    return os.path.join(download_dir(), "%(title)s.%(ext)s")
+
+
+def _final_name_for(prepared, audio, info, had_filename):
+    """Nome final no disco. Audio e sempre base+.mp3 (pos-processador).
+    Com nome do usuario: merge→.mp4; formato unico→ext do formato.
+    Sem nome do usuario: o prepare_filename do template %(ext)s devolve o
+    nome correto."""
+    if audio:
+        return os.path.splitext(os.path.basename(prepared))[0] + ".mp3"
+    if not had_filename:
+        return os.path.basename(prepared)
+    base = os.path.splitext(os.path.basename(prepared))[0]
+    if info and info.get("requested_formats"):
+        return base + ".mp4"
+    return base + "." + ((info or {}).get("ext") or "mp4")
+```
+
 Substituir a função `download_video_task` inteira pela versão abaixo (mantém a lógica de casos 1–3 existente, mas recebe `queue`/`task` e grava tudo via `queue.set`):
 
 ```python
@@ -1254,7 +1281,7 @@ def download_task(queue, task, *, url, referer=None, extra_headers=None,
         return
 
     ydl_opts = {
-        "outtmpl": os.path.join(download_dir(), "%(title)s.%(ext)s"),
+        "outtmpl": _outtmpl_for(filename),
         "noplaylist": True,
         "quiet": True,
         "no_warnings": True,
@@ -1326,6 +1353,14 @@ def download_task(queue, task, *, url, referer=None, extra_headers=None,
             if title:
                 queue.set(task_id, title=title)
             ydl.download([url])
+
+        # Nome final no disco (extensao correta apos merge/pos-processamento)
+        try:
+            prepared = ydl.prepare_filename(info)
+            queue.set(task_id, filename=_final_name_for(
+                prepared, format_type == "audio", info, bool(filename)))
+        except Exception:
+            pass
 
         queue.set(task_id, status="completed", progress="100%",
                   completed_at=time.time())
