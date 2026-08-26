@@ -1252,6 +1252,18 @@ def _final_name_for(prepared, audio, info, had_filename):
     if info and info.get("requested_formats"):
         return base + ".mp4"
     return base + "." + ((info or {}).get("ext") or "mp4")
+
+
+def _record_final_size(queue, task_id, final_name):
+    """Grava o tamanho real do arquivo baixado (bytes) na task."""
+    if not final_name:
+        return
+    try:
+        path = os.path.join(download_dir(), final_name)
+        if os.path.isfile(path):
+            queue.set(task_id, size=os.path.getsize(path))
+    except OSError:
+        pass
 ```
 
 Substituir a função `download_video_task` inteira pela versão abaixo (mantém a lógica de casos 1–3 existente, mas recebe `queue`/`task` e grava tudo via `queue.set`):
