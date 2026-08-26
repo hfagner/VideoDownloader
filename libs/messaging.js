@@ -9,6 +9,8 @@ const MessageType = {
   CLEAR_HISTORY: 'CLEAR_HISTORY',       // popup -> background: Limpar histórico (opcional, pode ser direto no popup)
   ADVANCED_DOWNLOAD_STARTED: 'ADVANCED_DOWNLOAD_STARTED', // popup -> background: registrar download do Motor Local
   GET_ACTIVE_DOWNLOADS: 'GET_ACTIVE_DOWNLOADS',           // popup -> background: listar downloads em andamento
+  BACKEND_STATUS: 'BACKEND_STATUS',         // popup <-> background: status/porta do Motor Local
+  ANALYZE_MEDIA: 'ANALYZE_MEDIA',           // popup -> background: analisar URL (título+formatos, com cache)
 };
 
 const Messaging = {

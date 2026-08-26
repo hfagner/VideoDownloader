@@ -97,6 +97,46 @@ const Storage = {
   },
 
   /**
+   * Cache de análises (chrome.storage.session) — TTL de 30 min por URL.
+   * @returns {Promise<Object>} { [url]: { result: Object, ts: number } }
+   */
+  async getAnalysisCache() {
+    return new Promise((resolve) => {
+      chrome.storage.session.get(['analysisCache'], (r) => {
+        resolve(r['analysisCache'] || {});
+      });
+    });
+  },
+
+  /**
+   * Grava o cache de análises no storage de sessão.
+   * @param {Object} cache
+   * @returns {Promise<void>}
+   */
+  async setAnalysisCache(cache) {
+    return new Promise((resolve) => {
+      chrome.storage.session.set({ analysisCache: cache }, () => resolve());
+    });
+  },
+
+  /**
+   * Porta ativa do Motor Local (descoberta via ping).
+   * @returns {Promise<number|null>}
+   */
+  async getBackendPort() {
+    return this.get('backendPort', null);
+  },
+
+  /**
+   * Memoriza a porta ativa do Motor Local.
+   * @param {number|null} port
+   * @returns {Promise<void>}
+   */
+  async setBackendPort(port) {
+    await this.set('backendPort', port);
+  },
+
+  /**
    * Obtém as configurações (fazendo merge com as defaults)
    * @returns {Promise<Object>}
    */
