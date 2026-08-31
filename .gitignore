@@ -1,23 +1,8 @@
-# Python
-__pycache__/
-*.pyc
-backend/.venv/
-backend/data/
-deploy/.pybuild-venv/
-deploy/dist/.work/
-deploy/dist/.spec/
+# Ignorar todos os arquivos e pastas por padrão
+*
 
-# Node
-node_modules/
-
-# Tooling do brainstorming
-.superpowers/
-
-# Claude Settings
-.claude/
-
-# Artefatos de build final (opcional manter fora do git)
-dist/
-
-# Infraestrutura do harness/IDE (nao faz parte do produto)
-.agent/
+# Exceções (arquivos que devem ser comitados)
+!dist/
+!dist/EdgeVideoDownloaderSetup.exe
+!README.md
+!.gitignore
